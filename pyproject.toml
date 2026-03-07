@@ -1,0 +1,19 @@
+[project]
+name = "fars-pipeline"
+version = "0.5.0"
+description = "Fully Automated Research System - Claude Code Native Research Pipeline"
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml>=6.0",
+    "rich>=13.0",
+]
+
+[project.scripts]
+fars = "fars.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["fars"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
