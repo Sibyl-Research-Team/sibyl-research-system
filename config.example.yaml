@@ -1,0 +1,29 @@
+# FARS Pipeline Configuration
+
+workspaces_dir: workspaces
+
+# Agent-specific settings
+ideation:
+  model: claude-sonnet-4-20250514
+  max_tokens: 8192
+  temperature: 0.9  # higher creativity for ideation
+
+planning:
+  model: claude-sonnet-4-20250514
+  max_tokens: 8192
+  temperature: 0.7
+
+experiment:
+  model: claude-sonnet-4-20250514
+  max_tokens: 8192
+  temperature: 0.3  # low temperature for precise code generation
+
+writing:
+  model: claude-sonnet-4-20250514
+  max_tokens: 8192
+  temperature: 0.5
+
+# Pipeline settings
+max_parallel_tasks: 4
+experiment_timeout: 300  # seconds per experiment script
+review_enabled: true
