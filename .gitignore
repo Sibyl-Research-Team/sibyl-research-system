@@ -6,3 +6,8 @@ dist/
 build/
 workspaces/
 .claude/
+
+# Legacy experiment artifacts (pre-v5)
+exp/
+logs/
+writing/

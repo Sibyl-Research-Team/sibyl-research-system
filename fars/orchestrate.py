@@ -243,6 +243,19 @@ class FarsOrchestrator:
 
     def _action_idea_debate_generate(self, topic: str, ws: str, common: str) -> Action:
         """3 parallel agents generate ideas independently."""
+        # Load spec and initial ideas if available
+        spec = self.ws.read_file("spec.md") or ""
+        initial_ideas = self.ws.read_file("idea/initial_ideas.md") or ""
+        seed_refs = self.ws.read_file("idea/references_seed.md") or ""
+
+        extra_context = ""
+        if spec:
+            extra_context += f"\n\n## Project Spec\n{spec}"
+        if initial_ideas:
+            extra_context += f"\n\n## User's Initial Ideas\n{initial_ideas}"
+        if seed_refs:
+            extra_context += f"\n\n## Seed References (from user)\n{seed_refs}"
+
         agents = []
         for role in ["innovator", "pragmatist", "theoretical"]:
             prompt_template = load_prompt(role)
@@ -251,6 +264,7 @@ class FarsOrchestrator:
                 f"Topic: {topic}\n\n"
                 f"Workspace path: {ws}\n\n"
                 f"Write your output to {ws}/idea/perspectives/{role}.md"
+                f"{extra_context}"
             )
             agents.append({
                 "name": role,
@@ -757,3 +771,167 @@ def cli_list_projects(workspaces_dir: str = "workspaces"):
             except Exception:
                 continue
     print(json.dumps(projects, indent=2))
+
+
+def cli_init_spec(project_name: str, config_path: str | None = None):
+    """CLI: Initialize a project directory for spec editing."""
+    config = Config.from_yaml(config_path) if config_path else Config()
+    ws = Workspace(config.workspaces_dir, project_name)
+
+    # Create spec template
+    spec_template = f"""# Project: {project_name}
+
+## Topic
+<!-- 一句话描述研究主题 -->
+
+## Background & Motivation
+<!-- 为什么要研究这个？有什么已知的相关工作？ -->
+
+## Initial Ideas
+<!-- 你已有的想法或方向（可选） -->
+
+## Key References
+<!-- 论文 URL、arXiv ID 等 -->
+-
+
+## Resources
+- GPU: 4x on cs8000d
+- Server: {config.ssh_server}
+- Remote Base: {config.remote_base}
+
+## Constraints
+- Experiment type: training-free / lightweight
+- Model size: small (GPT-2, BERT-base, Qwen-0.5B)
+- Time budget:
+
+## Target Output
+- paper / tech report / experiment validation
+
+## Special Notes
+<!-- 任何特殊需求 -->
+"""
+    ws.write_file("spec.md", spec_template)
+    print(json.dumps({
+        "project_name": project_name,
+        "workspace_path": str(ws.root),
+        "spec_path": str(ws.root / "spec.md"),
+    }, indent=2))
+
+
+def cli_init_from_spec(spec_path: str, config_path: str | None = None):
+    """CLI: Initialize a project from a spec markdown file."""
+    spec_file = Path(spec_path)
+    if not spec_file.exists():
+        print(json.dumps({"error": f"Spec file not found: {spec_path}"}))
+        return
+
+    spec_content = spec_file.read_text(encoding="utf-8")
+
+    # Extract project name from path or spec
+    # Try to get from parent directory name if in workspaces/
+    if spec_file.parent.parent.name == "workspaces" or "workspaces" in str(spec_file):
+        project_name = spec_file.parent.name
+    else:
+        # Extract from spec header
+        match = re.search(r'^#\s*Project:\s*(.+)', spec_content, re.MULTILINE)
+        project_name = match.group(1).strip() if match else spec_file.stem
+
+    project_name = FarsOrchestrator._slugify(project_name)
+    config = Config.from_yaml(config_path) if config_path else Config()
+
+    ws = Workspace(config.workspaces_dir, project_name)
+
+    # Extract topic from spec
+    topic_match = re.search(r'##\s*Topic\s*\n+(.+?)(?:\n\n|\n##)', spec_content, re.DOTALL)
+    topic = topic_match.group(1).strip() if topic_match else project_name
+    # Remove HTML comments
+    topic = re.sub(r'<!--.*?-->', '', topic).strip()
+
+    # Save spec and topic
+    ws.write_file("spec.md", spec_content)
+    ws.write_file("topic.txt", topic)
+    ws.update_stage("init")
+
+    # Extract references if present
+    refs_match = re.search(r'##\s*Key References\s*\n(.+?)(?:\n##|\Z)', spec_content, re.DOTALL)
+    if refs_match:
+        ws.write_file("idea/references_seed.md", refs_match.group(1).strip())
+
+    # Extract initial ideas if present
+    ideas_match = re.search(r'##\s*Initial Ideas\s*\n(.+?)(?:\n##|\Z)', spec_content, re.DOTALL)
+    if ideas_match:
+        ideas_text = ideas_match.group(1).strip()
+        ideas_text = re.sub(r'<!--.*?-->', '', ideas_text).strip()
+        if ideas_text:
+            ws.write_file("idea/initial_ideas.md", ideas_text)
+
+    print(json.dumps({
+        "project_name": project_name,
+        "workspace_path": str(ws.root),
+        "topic": topic,
+        "spec_path": str(ws.root / "spec.md"),
+        "config": {
+            "ssh_server": config.ssh_server,
+            "remote_base": config.remote_base,
+            "gpu_ids": config.gpu_ids,
+            "pilot_samples": config.pilot_samples,
+            "full_seeds": config.full_seeds,
+            "lark_enabled": config.lark_enabled,
+        },
+    }, indent=2))
+
+
+def cli_migrate(workspace_path: str):
+    """CLI: Migrate a legacy project to v5 structure."""
+    ws_path = Path(workspace_path)
+    if not ws_path.exists():
+        print(json.dumps({"error": f"Workspace not found: {workspace_path}"}))
+        return
+
+    config = Config()
+    project_name = ws_path.name
+    ws = Workspace(config.workspaces_dir, project_name)
+
+    changes = []
+
+    # Ensure v5 directories exist (Workspace.__init__ handles this)
+    changes.append("Ensured v5 directory structure")
+
+    # Create topic.txt if missing
+    if not (ws.root / "topic.txt").exists():
+        # Try to extract from proposal
+        proposal = ws.read_file("idea/proposal.md")
+        if proposal:
+            # Try to extract title
+            title_match = re.search(r'^#\s*(.+)', proposal, re.MULTILINE)
+            topic = title_match.group(1).strip() if title_match else project_name
+        else:
+            topic = project_name.replace("-", " ").title()
+        ws.write_file("topic.txt", topic)
+        changes.append(f"Created topic.txt: {topic}")
+
+    # Ensure status.json has iteration field
+    status = ws.get_status()
+    if status.iteration == 0 and status.stage == "done":
+        status.iteration = 1
+        ws._save_status(status)
+        changes.append("Set iteration to 1 (was 0 for completed project)")
+
+    # Create missing subdirectories
+    for subdir in ["idea/perspectives", "idea/debate", "idea/result_debate",
+                   "plan", "exp/results/pilots", "exp/results/full",
+                   "lark_sync", "logs/iterations"]:
+        d = ws.root / subdir
+        if not d.exists():
+            d.mkdir(parents=True, exist_ok=True)
+            changes.append(f"Created directory: {subdir}")
+
+    print(json.dumps({
+        "project_name": project_name,
+        "workspace_path": str(ws.root),
+        "changes": changes,
+        "status": {
+            "stage": ws.get_status().stage,
+            "iteration": ws.get_status().iteration,
+        },
+    }, indent=2))
