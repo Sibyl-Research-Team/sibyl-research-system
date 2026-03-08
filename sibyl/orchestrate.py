@@ -26,6 +26,14 @@ PAPER_SECTIONS = [
 
 PROMPTS_DIR = Path(__file__).parent / "prompts"
 
+# Mapping: stage -> checkpoint directory (relative to workspace root)
+CHECKPOINT_DIRS = {
+    "idea_debate": "idea",
+    "result_debate": "idea/result_debate",
+    "writing_sections": "writing/sections",
+    "writing_critique": "writing/critique",
+}
+
 
 def load_prompt(agent_name: str, overlay_content: str | None = None) -> str:
     """Load an agent prompt from the prompts/ directory, with overlay injection.
@@ -79,6 +87,7 @@ class Action:
     description: str = ""
     stage: str = ""
     estimated_minutes: int = 0  # expected runtime hint for experiment batches
+    checkpoint_info: dict | None = None  # {resuming, completed_steps, remaining_steps, all_complete}
 
 
 class FarsOrchestrator:
@@ -301,6 +310,51 @@ class FarsOrchestrator:
             return Action(action_type="done", description="Unknown stage", stage="done")
 
     # ══════════════════════════════════════════════
+    # Checkpoint helpers
+    # ══════════════════════════════════════════════
+
+    def _get_or_create_checkpoint(self, stage: str, steps: dict[str, str]) -> dict | None:
+        """Get validated checkpoint or create a new one.
+
+        Returns checkpoint_info dict: {resuming, completed_steps, remaining_steps, all_complete}
+        or None if this stage doesn't support checkpoints.
+        """
+        cp_dir = CHECKPOINT_DIRS.get(stage)
+        if cp_dir is None:
+            return None
+
+        iteration = self.ws.get_status().iteration
+
+        # Try to load and validate existing checkpoint
+        valid = self.ws.validate_checkpoint(cp_dir, current_iteration=iteration)
+        if valid is not None:
+            if not valid["remaining"]:
+                return {
+                    "resuming": True,
+                    "completed_steps": valid["completed"],
+                    "remaining_steps": [],
+                    "all_complete": True,
+                    "checkpoint_dir": cp_dir,
+                }
+            return {
+                "resuming": True,
+                "completed_steps": valid["completed"],
+                "remaining_steps": valid["remaining"],
+                "all_complete": False,
+                "checkpoint_dir": cp_dir,
+            }
+
+        # No valid checkpoint — create fresh
+        self.ws.create_checkpoint(stage, cp_dir, steps, iteration=iteration)
+        return {
+            "resuming": False,
+            "completed_steps": [],
+            "remaining_steps": list(steps.keys()),
+            "all_complete": False,
+            "checkpoint_dir": cp_dir,
+        }
+
+    # ══════════════════════════════════════════════
     # Action builders
     # ══════════════════════════════════════════════
 
@@ -324,6 +378,21 @@ class FarsOrchestrator:
         - Interdisciplinary: borrows from other sciences (neuro, physics, bio)
         - Empiricist: experiment-first thinking, rigorous evaluation design
         """
+        # Checkpoint: track per-perspective progress
+        idea_roles = ["innovator", "pragmatist", "theoretical", "contrarian",
+                       "interdisciplinary", "empiricist"]
+        steps = {role: f"idea/perspectives/{role}.md" for role in idea_roles}
+        cp_info = self._get_or_create_checkpoint("idea_debate", steps)
+
+        if cp_info and cp_info["all_complete"]:
+            return Action(
+                action_type="bash",
+                bash_command="echo 'All idea perspectives already written (checkpoint valid)'",
+                description="所有视角提案已完成（checkpoint 校验通过），可直接 record",
+                stage="idea_debate",
+                checkpoint_info=cp_info,
+            )
+
         # Prepare context file for teammates to read
         spec = self.ws.read_file("spec.md") or ""
         initial_ideas = self.ws.read_file("idea/initial_ideas.md") or ""
@@ -343,16 +412,13 @@ class FarsOrchestrator:
         if extra_context:
             self.ws.write_file("context/idea_context.md", extra_context)
 
+        remaining = set(cp_info["remaining_steps"]) if cp_info else set(idea_roles)
+
         team_prompt = (
             f"Create an agent team to generate and debate research ideas for: {topic}\n\n"
             f"Workspace: {ws}\n\n"
-            f"Spawn 6 teammates with diverse perspectives:\n"
-            f"1. Innovator: bold cross-disciplinary ideas\n"
-            f"2. Pragmatist: engineering-feasible ideas\n"
-            f"3. Theoretical: mathematically grounded ideas\n"
-            f"4. Contrarian: challenges assumptions, finds blind spots\n"
-            f"5. Interdisciplinary: borrows from other sciences\n"
-            f"6. Empiricist: experiment-first, rigorous evaluation design\n\n"
+            f"Spawn teammates for remaining perspectives:\n"
+            + "\n".join(f"- {role}" for role in idea_roles if role in remaining) + "\n\n"
             f"Each reads {ws}/context/idea_context.md for background and writes to "
             f"{ws}/idea/perspectives/<role>.md\n\n"
             f"After generating ideas, have teammates critique each other's work (score 1-10). "
@@ -362,7 +428,7 @@ class FarsOrchestrator:
             f"All output in Chinese. Use Sonnet for teammates."
         )
 
-        teammates = [
+        all_teammates = [
             {"name": "innovator", "skill": "sibyl-innovator", "args": f"{topic} {ws}"},
             {"name": "pragmatist", "skill": "sibyl-pragmatist", "args": f"{topic} {ws}"},
             {"name": "theoretical", "skill": "sibyl-theoretical", "args": f"{topic} {ws}"},
@@ -370,6 +436,7 @@ class FarsOrchestrator:
             {"name": "interdisciplinary", "skill": "sibyl-interdisciplinary", "args": f"{topic} {ws}"},
             {"name": "empiricist", "skill": "sibyl-empiricist", "args": f"{topic} {ws}"},
         ]
+        teammates = [t for t in all_teammates if t["name"] in remaining]
 
         post_steps = [
             {"type": "skill", "skill": "sibyl-synthesizer", "args": ws},
@@ -391,10 +458,13 @@ class FarsOrchestrator:
         return Action(
             action_type="team",
             team=team_dict,
-            description="Agent Team: 6人辩论生成研究提案"
-                        "（创新者+实用主义者+理论家+反对者+跨学科者+实验主义者）"
+            description=f"Agent Team: {len(teammates)}人辩论生成研究提案"
+                        + (f"（恢复：已完成 {len(cp_info['completed_steps'])}/6）"
+                           if cp_info and cp_info["resuming"] else
+                           "（创新者+实用主义者+理论家+反对者+跨学科者+实验主义者）")
                         + (" + Codex 独立审查" if self.config.codex_enabled else ""),
             stage="idea_debate",
+            checkpoint_info=cp_info,
         )
 
     def _action_planning(self, ws: str) -> Action:
@@ -603,17 +673,29 @@ class FarsOrchestrator:
         - Comparativist: SOTA comparison, contribution margin, novelty assessment
         - Revisionist: hypothesis revision, mental model updates, reframing
         """
+        # Checkpoint: track per-analyst progress
+        result_roles = ["optimist", "skeptic", "strategist", "methodologist",
+                        "comparativist", "revisionist"]
+        steps = {role: f"idea/result_debate/{role}.md" for role in result_roles}
+        cp_info = self._get_or_create_checkpoint("result_debate", steps)
+
+        if cp_info and cp_info["all_complete"]:
+            return Action(
+                action_type="bash",
+                bash_command="echo 'All result analyses already written (checkpoint valid)'",
+                description="所有结果分析已完成（checkpoint 校验通过），可直接 record",
+                stage="result_debate",
+                checkpoint_info=cp_info,
+            )
+
+        remaining = set(cp_info["remaining_steps"]) if cp_info else set(result_roles)
+
         team_prompt = (
             f"Create an agent team to debate experiment results.\n\n"
             f"Workspace: {ws}\n"
             f"Read experiment results from {ws}/exp/results/\n\n"
-            f"Spawn 6 teammates with diverse analytical perspectives:\n"
-            f"1. Optimist: highlight positive findings, potential impact\n"
-            f"2. Skeptic: challenge results, find flaws, demand more evidence\n"
-            f"3. Strategist: assess strategic implications, suggest next steps\n"
-            f"4. Methodologist: audit experimental methodology, reproducibility\n"
-            f"5. Comparativist: compare against SOTA, assess contribution margin\n"
-            f"6. Revisionist: revise hypotheses based on actual results\n\n"
+            f"Spawn teammates for remaining perspectives:\n"
+            + "\n".join(f"- {role}" for role in result_roles if role in remaining) + "\n\n"
             f"Have them debate each other's positions. The skeptic and methodologist "
             f"should challenge the optimist's claims. The comparativist grounds the "
             f"discussion in external context. The revisionist updates our mental model. "
@@ -622,7 +704,7 @@ class FarsOrchestrator:
             f"All output in Chinese."
         )
 
-        teammates = [
+        all_teammates = [
             {"name": "optimist", "skill": "sibyl-optimist", "args": ws},
             {"name": "skeptic", "skill": "sibyl-skeptic", "args": ws},
             {"name": "strategist", "skill": "sibyl-strategist", "args": ws},
@@ -630,6 +712,7 @@ class FarsOrchestrator:
             {"name": "comparativist", "skill": "sibyl-comparativist", "args": ws},
             {"name": "revisionist", "skill": "sibyl-revisionist", "args": ws},
         ]
+        teammates = [t for t in all_teammates if t["name"] in remaining]
 
         post_steps = [
             {"type": "skill", "skill": "sibyl-result-synthesizer", "args": ws},
@@ -651,10 +734,14 @@ class FarsOrchestrator:
         return Action(
             action_type="team",
             team=team_dict,
-            description="Agent Team: 6人辩论实验结果"
-                        "（乐观者+怀疑论者+战略家+方法论者+比较分析者+修正主义者）→ 综合裁决"
+            description=f"Agent Team: {len(teammates)}人辩论实验结果"
+                        + (f"（恢复：已完成 {len(cp_info['completed_steps'])}/6）"
+                           if cp_info and cp_info["resuming"] else
+                           "（乐观者+怀疑论者+战略家+方法论者+比较分析者+修正主义者）")
+                        + " → 综合裁决"
                         + (" + Codex 独立审查" if self.config.codex_enabled else ""),
             stage="result_debate",
+            checkpoint_info=cp_info,
         )
 
     def _action_experiment_decision(self, ws: str) -> Action:
@@ -675,31 +762,50 @@ class FarsOrchestrator:
 
     def _action_writing_sections(self, ws: str) -> Action:
         mode = self.config.writing_mode
-        if mode == "sequential":
+
+        # Checkpoint: track per-section progress (all writing modes)
+        steps = {sid: f"writing/sections/{sid}.md" for sid, _ in PAPER_SECTIONS}
+        cp_info = self._get_or_create_checkpoint("writing_sections", steps)
+
+        if cp_info and cp_info["all_complete"]:
             return Action(
+                action_type="bash",
+                bash_command="echo 'All sections already written (checkpoint valid)'",
+                description="所有章节已完成（checkpoint 校验通过），可直接 record",
+                stage="writing_sections",
+                checkpoint_info=cp_info,
+            )
+
+        if mode == "sequential":
+            action = Action(
                 action_type="skill",
                 skills=[{"name": "sibyl-sequential-writer", "args": ws}],
                 description="顺序撰写论文各章节（确保行文一致性）",
                 stage="writing_sections",
+                checkpoint_info=cp_info,
             )
+            return action
         elif mode == "codex":
             return Action(
                 action_type="skill",
                 skills=[{"name": "sibyl-codex-writer", "args": ws}],
                 description="使用 Codex (GPT-5) 撰写论文各章节",
                 stage="writing_sections",
+                checkpoint_info=cp_info,
             )
         else:  # "parallel" — 保留现有 team 模式
+            remaining = set(cp_info["remaining_steps"]) if cp_info else None
             sections_info = "\n".join(
                 f"- {name} (section id: {sid}): write to {ws}/writing/sections/{sid}.md"
                 for sid, name in PAPER_SECTIONS
+                if remaining is None or sid in remaining
             )
             team_prompt = (
                 f"Create an agent team to write paper sections in parallel.\n\n"
                 f"Workspace: {ws}\n"
                 f"Read outline from {ws}/writing/outline.md\n"
                 f"Read experiment results from {ws}/exp/results/\n\n"
-                f"Spawn 6 teammates, one for each section:\n{sections_info}\n\n"
+                f"Spawn teammates for remaining sections:\n{sections_info}\n\n"
                 f"Teammates should coordinate for consistency — share key definitions, "
                 f"notation, and cross-references between sections.\n"
                 f"All writing in Chinese."
@@ -711,6 +817,7 @@ class FarsOrchestrator:
                     "args": f"{ws} {sid} {name}",
                 }
                 for sid, name in PAPER_SECTIONS
+                if remaining is None or sid in remaining
             ]
             team_dict = {
                 "team_name": "sibyl-writing-sections",
@@ -721,20 +828,38 @@ class FarsOrchestrator:
             return Action(
                 action_type="team",
                 team=team_dict,
-                description="Agent Team: 6人并行撰写论文各章节",
+                description=f"Agent Team: {len(teammates)}人并行撰写论文章节"
+                            + (f"（恢复：已完成 {len(cp_info['completed_steps'])}/6）"
+                               if cp_info and cp_info["resuming"] else ""),
                 stage="writing_sections",
+                checkpoint_info=cp_info,
             )
 
     def _action_writing_critique(self, ws: str) -> Action:
+        # Checkpoint: track per-section critique progress
+        steps = {sid: f"writing/critique/{sid}_critique.md" for sid, _ in PAPER_SECTIONS}
+        cp_info = self._get_or_create_checkpoint("writing_critique", steps)
+
+        if cp_info and cp_info["all_complete"]:
+            return Action(
+                action_type="bash",
+                bash_command="echo 'All critiques already written (checkpoint valid)'",
+                description="所有批评已完成（checkpoint 校验通过），可直接 record",
+                stage="writing_critique",
+                checkpoint_info=cp_info,
+            )
+
+        remaining = set(cp_info["remaining_steps"]) if cp_info else None
         sections_info = "\n".join(
             f"- Critic for {name}: read {ws}/writing/sections/{sid}.md, "
             f"write critique to {ws}/writing/critique/{sid}_critique.md"
             for sid, name in PAPER_SECTIONS
+            if remaining is None or sid in remaining
         )
         team_prompt = (
             f"Create an agent team to critique paper sections.\n\n"
             f"Workspace: {ws}\n\n"
-            f"Spawn 6 teammates, one critic per section:\n{sections_info}\n\n"
+            f"Spawn teammates for remaining critiques:\n{sections_info}\n\n"
             f"Critics should cross-reference other sections for consistency issues. "
             f"Score each section 1-10 and provide specific improvement suggestions.\n"
             f"All output in Chinese."
@@ -746,6 +871,7 @@ class FarsOrchestrator:
                 "args": f"{ws} {sid} {name}",
             }
             for sid, name in PAPER_SECTIONS
+            if remaining is None or sid in remaining
         ]
         team_dict = {
             "team_name": "sibyl-writing-critique",
@@ -756,8 +882,11 @@ class FarsOrchestrator:
         return Action(
             action_type="team",
             team=team_dict,
-            description="Agent Team: 6人并行批评论文各章节",
+            description=f"Agent Team: {len(teammates)}人并行批评论文章节"
+                        + (f"（恢复：已完成 {len(cp_info['completed_steps'])}/6）"
+                           if cp_info and cp_info["resuming"] else ""),
             stage="writing_critique",
+            checkpoint_info=cp_info,
         )
 
     def _action_writing_integrate(self, ws: str) -> Action:
@@ -1190,6 +1319,10 @@ class FarsOrchestrator:
                 except OSError:
                     pass
 
+        # Clear checkpoint files
+        for cp_dir in CHECKPOINT_DIRS.values():
+            self.ws.clear_checkpoint(cp_dir)
+
         # Restore preserved files for next iteration
         if lessons_content:
             self.ws.write_file("reflection/lessons_learned.md", lessons_content)
@@ -1255,6 +1388,18 @@ def cli_status(workspace_path: str):
     """CLI: Get project status."""
     o = FarsOrchestrator(workspace_path)
     print(json.dumps(o.get_status(), indent=2))
+
+
+def cli_checkpoint(workspace_path: str, stage: str, step_id: str):
+    """CLI: Mark a checkpoint sub-step as completed."""
+    cp_dir = CHECKPOINT_DIRS.get(stage)
+    if cp_dir is None:
+        print(json.dumps({"status": "error", "message": f"No checkpoint support for stage '{stage}'"}))
+        return
+    ws_path = Path(workspace_path)
+    ws = Workspace(ws_path.parent, ws_path.name)
+    ws.complete_checkpoint_step(cp_dir, step_id)
+    print(json.dumps({"status": "ok", "stage": stage, "step": step_id}))
 
 
 def cli_list_projects(workspaces_dir: str = "workspaces"):

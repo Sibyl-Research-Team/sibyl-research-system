@@ -7,7 +7,7 @@ import pytest
 
 from sibyl.orchestrate import (
     FarsOrchestrator, Action, load_prompt, load_common_prompt,
-    PAPER_SECTIONS,
+    PAPER_SECTIONS, CHECKPOINT_DIRS, cli_checkpoint,
 )
 from sibyl.config import Config
 from sibyl.workspace import Workspace
@@ -971,3 +971,115 @@ class TestGpuPollingIntegration:
             assert action["action_type"] == "gpu_poll"
         finally:
             marker.unlink(missing_ok=True)
+
+
+# ══════════════════════════════════════════════
+# Checkpoint integration
+# ══════════════════════════════════════════════
+
+class TestCheckpointIntegration:
+    """Test checkpoint-aware action generation."""
+
+    def test_writing_sections_parallel_creates_checkpoint(self, make_orchestrator):
+        o = make_orchestrator(stage="writing_sections", writing_mode="parallel")
+        action = o.get_next_action()
+        assert action["action_type"] == "team"
+        cp = o.ws.load_checkpoint("writing/sections")
+        assert cp is not None
+        assert len(cp["steps"]) == 6
+        assert action["checkpoint_info"] is not None
+
+    def test_writing_sections_resumes_from_checkpoint(self, make_orchestrator):
+        o = make_orchestrator(stage="writing_sections", writing_mode="parallel")
+        iteration = o.ws.get_status().iteration
+        steps = {sid: f"writing/sections/{sid}.md" for sid, _ in PAPER_SECTIONS}
+        o.ws.create_checkpoint("writing_sections", "writing/sections", steps, iteration=iteration)
+        for sid in ["intro", "related_work", "method"]:
+            o.ws.write_file(f"writing/sections/{sid}.md", f"# {sid}\n" * 50)
+            o.ws.complete_checkpoint_step("writing/sections", sid)
+        action = o.get_next_action()
+        assert action["action_type"] == "team"
+        cp_info = action["checkpoint_info"]
+        assert cp_info is not None
+        assert cp_info["resuming"] is True
+        assert set(cp_info["completed_steps"]) == {"intro", "related_work", "method"}
+        assert len(cp_info["remaining_steps"]) == 3
+        # Only remaining teammates should be spawned
+        assert len(action["team"]["teammates"]) == 3
+
+    def test_writing_critique_creates_checkpoint(self, make_orchestrator):
+        o = make_orchestrator(stage="writing_critique")
+        action = o.get_next_action()
+        assert action["action_type"] == "team"
+        cp = o.ws.load_checkpoint("writing/critique")
+        assert cp is not None
+        assert len(cp["steps"]) == 6
+
+    def test_idea_debate_creates_checkpoint(self, make_orchestrator):
+        o = make_orchestrator(stage="idea_debate")
+        action = o.get_next_action()
+        assert action["action_type"] == "team"
+        cp = o.ws.load_checkpoint("idea")
+        assert cp is not None
+        assert len(cp["steps"]) == 6
+
+    def test_result_debate_creates_checkpoint(self, make_orchestrator):
+        o = make_orchestrator(stage="result_debate")
+        action = o.get_next_action()
+        assert action["action_type"] == "team"
+        cp = o.ws.load_checkpoint("idea/result_debate")
+        assert cp is not None
+        assert len(cp["steps"]) == 6
+
+    def test_all_steps_complete_returns_all_complete(self, make_orchestrator):
+        """If all checkpoint steps valid, action indicates stage is complete."""
+        o = make_orchestrator(stage="writing_sections", writing_mode="parallel")
+        iteration = o.ws.get_status().iteration
+        steps = {sid: f"writing/sections/{sid}.md" for sid, _ in PAPER_SECTIONS}
+        o.ws.create_checkpoint("writing_sections", "writing/sections", steps, iteration=iteration)
+        for sid, _ in PAPER_SECTIONS:
+            o.ws.write_file(f"writing/sections/{sid}.md", f"# {sid}\n" * 50)
+            o.ws.complete_checkpoint_step("writing/sections", sid)
+        action = o.get_next_action()
+        assert action["checkpoint_info"]["all_complete"] is True
+
+    def test_clear_iteration_artifacts_clears_checkpoints(self, make_orchestrator):
+        o = make_orchestrator(stage="writing_sections")
+        steps = {"intro": "writing/sections/intro.md"}
+        o.ws.create_checkpoint("writing_sections", "writing/sections", steps, iteration=0)
+        o._clear_iteration_artifacts()
+        assert o.ws.has_checkpoint("writing/sections") is False
+        assert o.ws.has_checkpoint("writing/critique") is False
+        assert o.ws.has_checkpoint("idea") is False
+        assert o.ws.has_checkpoint("idea/result_debate") is False
+
+    def test_sequential_writing_has_checkpoint_info(self, make_orchestrator):
+        """Sequential writing mode also gets checkpoint info."""
+        o = make_orchestrator(stage="writing_sections", writing_mode="sequential")
+        action = o.get_next_action()
+        assert action["action_type"] == "skill"
+        assert action["checkpoint_info"] is not None
+        cp = o.ws.load_checkpoint("writing/sections")
+        assert cp is not None
+
+
+class TestCliCheckpoint:
+    def test_cli_checkpoint_marks_step(self, make_orchestrator, capsys):
+        o = make_orchestrator(stage="writing_sections")
+        steps = {"intro": "writing/sections/intro.md"}
+        o.ws.create_checkpoint("writing_sections", "writing/sections", steps, iteration=0)
+        o.ws.write_file("writing/sections/intro.md", "content here")
+        cli_checkpoint(str(o.ws.root), "writing_sections", "intro")
+        captured = capsys.readouterr()
+        result = json.loads(captured.out)
+        assert result["status"] == "ok"
+        assert result["step"] == "intro"
+        cp = o.ws.load_checkpoint("writing/sections")
+        assert cp["steps"]["intro"]["status"] == "completed"
+
+    def test_cli_checkpoint_unsupported_stage(self, make_orchestrator, capsys):
+        o = make_orchestrator(stage="planning")
+        cli_checkpoint(str(o.ws.root), "planning", "some_step")
+        captured = capsys.readouterr()
+        result = json.loads(captured.out)
+        assert result["status"] == "error"
