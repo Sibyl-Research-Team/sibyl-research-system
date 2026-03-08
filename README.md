@@ -18,45 +18,45 @@ Sibyl 通过 **状态机编排器** 协调 20+ 个 AI Agent，自动完成文献
 ## 工作流程
 
 ```
-┌─ 🔄 研究迭代 ──────────────────────┐  ┌─ ✍️ 论文撰写 ──────────────────────┐
-│                                     │  │                                     │
-│  📚 文献调研 (arXiv + Web)          │  │  📝 大纲撰写                        │
-│       │                             │  │       │                             │
-│       ▼                             │  │       ▼                             │
-│  💡 创意辩论 (6 Agent 多视角)       │  │  ✏️ 章节写作 (顺序/并行/Codex)      │
-│       │                             │  │       │                             │
-│       ▼                             │  │       ▼                             │
-│  📋 实验规划 (task_plan.json)       │  │  🔍 交叉评审 (6 Agent 批评)         │
-│       │                             │  │       │                             │
-│       ▼                             │  │       ▼                             │
-│  🧪 试点实验 (小规模验证)           │  │  📖 整合编辑                        │
-│       │                             │  │       │                             │
-│       ▼                             │  │       ▼                             │
-│  ⚡ 正式实验 (GPU 并行调度)         │  │  📋 终审 (NeurIPS 级别)             │
-│       │                             │  │       │ 不达标 ──▶ 回到整合 (≤2轮)  │
-│       ▼                             │  │       ▼                             │
-│  📊 结果辩论 (6 Agent 分析)         │  │  📄 LaTeX 排版 ──▶ 编译 PDF        │
-│       │                             │  │       │                             │
-│       ▼                             │  └───────┼─────────────────────────────┘
-│  🔀 实验决策                        │          │
-│       │ PIVOT ──▶ 回到创意辩论      │          │
-│       │ PROCEED                     │          ▼
-└───────┼─────────────────────────────┘  ┌─ 🔬 审稿反思 ──────────────────────┐
-        │                                │                                     │
-        └──────────▶ 大纲撰写            │  👥 综合审稿 (Critic+Supervisor+Codex)
-                                         │       │                             │
-                                         │       ▼                             │
-                                         │  💭 反思总结 (分类问题·记录教训)    │
-                                         │       │                             │
-                                         │       ▼                             │
-                                         │  ☁️ 飞书同步                        │
-                                         │       │                             │
-                                         │       ▼                             │
-                                         │  ⭐ 质量门控                        │
-                                         │       │ ≥8.0 分 & ≥2 轮 ──▶ ✅ 完成 │
-                                         │       │ 未达标 ──▶ 回到文献调研 🔄   │
-                                         │                                     │
-                                         └─────────────────────────────────────┘
++== Research Iteration =============+  +== Paper Writing ====================+
+|                                    |  |                                     |
+|  Literature Search (arXiv + Web)   |  |  Outline                            |
+|       |                            |  |       |                             |
+|       v                            |  |       v                             |
+|  Idea Debate (6 Agents)            |  |  Section Writing (seq/para/Codex)   |
+|       |                            |  |       |                             |
+|       v                            |  |       v                             |
+|  Experiment Planning               |  |  Cross Review (6 Agents)            |
+|       |                            |  |       |                             |
+|       v                            |  |       v                             |
+|  Pilot Experiments                 |  |  Integration & Editing              |
+|       |                            |  |       |                             |
+|       v                            |  |       v                             |
+|  Full Experiments (GPU parallel)   |  |  Final Review (NeurIPS level)       |
+|       |                            |  |       | fail --> back to edit (x2)  |
+|       v                            |  |       v                             |
+|  Result Debate (6 Agents)          |  |  LaTeX --> compile PDF              |
+|       |                            |  |       |                             |
+|       v                            |  +-------|---------+-------------------+
+|  Decision                          |          |
+|       | PIVOT --> back to Idea     |          |
+|       | PROCEED                    |          v
++-------|-----------+----------------+  +== Review & Reflection ==============+
+        |                               |                                     |
+        +----------> Outline            |  Review (Critic+Supervisor+Codex)    |
+                                        |       |                             |
+                                        |       v                             |
+                                        |  Reflection (lessons learned)       |
+                                        |       |                             |
+                                        |       v                             |
+                                        |  Lark Sync (cloud docs)             |
+                                        |       |                             |
+                                        |       v                             |
+                                        |  Quality Gate                       |
+                                        |       | >= 8.0 & >= 2 iter --> DONE |
+                                        |       | else --> next iteration     |
+                                        |                                     |
+                                        +-------------------------------------+
 ```
 
 ### 阶段详解
