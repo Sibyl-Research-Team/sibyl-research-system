@@ -543,16 +543,31 @@ class FarsOrchestrator:
         )
 
     def _action_result_debate(self, ws: str) -> Action:
+        """Agent Team: 6 teammates analyze results from diverse angles, then synthesize.
+
+        Six perspectives ensure thorough result evaluation:
+        - Optimist: positive findings, extensions, silver linings
+        - Skeptic: statistical concerns, confounds, missing evidence
+        - Strategist: next steps, resource allocation, pivot/proceed
+        - Methodologist: evaluation protocol audit, reproducibility, baseline fairness
+        - Comparativist: SOTA comparison, contribution margin, novelty assessment
+        - Revisionist: hypothesis revision, mental model updates, reframing
+        """
         team_prompt = (
             f"Create an agent team to debate experiment results.\n\n"
             f"Workspace: {ws}\n"
             f"Read experiment results from {ws}/exp/results/\n\n"
-            f"Spawn 3 teammates:\n"
+            f"Spawn 6 teammates with diverse analytical perspectives:\n"
             f"1. Optimist: highlight positive findings, potential impact\n"
             f"2. Skeptic: challenge results, find flaws, demand more evidence\n"
-            f"3. Strategist: assess strategic implications, suggest next steps\n\n"
-            f"Have them debate each other's positions. The skeptic should challenge "
-            f"the optimist's claims, the strategist should mediate.\n\n"
+            f"3. Strategist: assess strategic implications, suggest next steps\n"
+            f"4. Methodologist: audit experimental methodology, reproducibility\n"
+            f"5. Comparativist: compare against SOTA, assess contribution margin\n"
+            f"6. Revisionist: revise hypotheses based on actual results\n\n"
+            f"Have them debate each other's positions. The skeptic and methodologist "
+            f"should challenge the optimist's claims. The comparativist grounds the "
+            f"discussion in external context. The revisionist updates our mental model. "
+            f"The strategist synthesizes into actionable next steps.\n\n"
             f"Each teammate writes analysis to {ws}/idea/result_debate/ROLE.md\n"
             f"All output in Chinese."
         )
@@ -561,9 +576,14 @@ class FarsOrchestrator:
             {"name": "optimist", "skill": "sibyl-optimist", "args": ws},
             {"name": "skeptic", "skill": "sibyl-skeptic", "args": ws},
             {"name": "strategist", "skill": "sibyl-strategist", "args": ws},
+            {"name": "methodologist", "skill": "sibyl-methodologist", "args": ws},
+            {"name": "comparativist", "skill": "sibyl-comparativist", "args": ws},
+            {"name": "revisionist", "skill": "sibyl-revisionist", "args": ws},
         ]
 
-        post_steps = []
+        post_steps = [
+            {"type": "skill", "skill": "sibyl-result-synthesizer", "args": ws},
+        ]
         if self.config.codex_enabled:
             post_steps.append({
                 "type": "codex",
@@ -581,7 +601,8 @@ class FarsOrchestrator:
         return Action(
             action_type="team",
             team=team_dict,
-            description="Agent Team: 3人辩论实验结果（乐观者+怀疑论者+战略家）"
+            description="Agent Team: 6人辩论实验结果"
+                        "（乐观者+怀疑论者+战略家+方法论者+比较分析者+修正主义者）→ 综合裁决"
                         + (" + Codex 独立审查" if self.config.codex_enabled else ""),
             stage="result_debate",
         )

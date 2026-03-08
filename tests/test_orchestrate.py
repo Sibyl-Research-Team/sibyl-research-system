@@ -551,16 +551,22 @@ class TestActionGeneration:
         assert "prompt" in team
 
     def test_result_debate_team_structure(self, make_orchestrator):
-        """result_debate returns structured team with 3 teammates."""
+        """result_debate returns structured team with 6 teammates + synthesizer."""
         o = make_orchestrator(stage="result_debate")
         action = o.get_next_action()
         team = action["team"]
         assert team["team_name"] == "sibyl-result-debate"
-        assert len(team["teammates"]) == 3
+        assert len(team["teammates"]) == 6
         names = [t["name"] for t in team["teammates"]]
         assert "optimist" in names
         assert "skeptic" in names
         assert "strategist" in names
+        assert "methodologist" in names
+        assert "comparativist" in names
+        assert "revisionist" in names
+        # result-synthesizer always in post_steps
+        skill_steps = [s for s in team["post_steps"] if s["type"] == "skill"]
+        assert any(s["skill"] == "sibyl-result-synthesizer" for s in skill_steps)
 
     def test_result_debate_codex_step(self, make_orchestrator):
         """result_debate with codex_enabled includes codex post_step."""
@@ -573,7 +579,11 @@ class TestActionGeneration:
     def test_result_debate_no_codex(self, make_orchestrator):
         o = make_orchestrator(stage="result_debate", codex_enabled=False)
         action = o.get_next_action()
-        assert len(action["team"]["post_steps"]) == 0
+        codex_steps = [s for s in action["team"]["post_steps"] if s["type"] == "codex"]
+        assert len(codex_steps) == 0
+        # synthesizer is always present
+        skill_steps = [s for s in action["team"]["post_steps"] if s["type"] == "skill"]
+        assert len(skill_steps) == 1
 
     def test_writing_sections_parallel_team_structure(self, make_orchestrator):
         """writing_sections parallel mode returns 6 section-writer teammates."""
