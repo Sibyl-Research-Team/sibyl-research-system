@@ -38,34 +38,57 @@ chmod +x setup.sh && ./setup.sh
 设置 API Key 和 GPU 服务器：
 
 ```bash
-# 必需
+# 必需环境变量（添加到 ~/.zshrc 或 ~/.bashrc）
 export ANTHROPIC_API_KEY="sk-ant-..."
 export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
+```
 
-# GPU 服务器 — 必须在 ~/.ssh/config 中配置好 SSH 免密登录
-# 创建根目录配置文件（不提交到 Git）：
-cat > config.yaml << 'EOF'
-ssh_server: "my-gpu-box"           # SSH 主机名
+配置 GPU 服务器的 SSH 访问（如已配置可跳过）：
+
+```bash
+# 添加到 ~/.ssh/config
+Host my-gpu-box
+    HostName 192.168.1.100
+    User your-username
+    IdentityFile ~/.ssh/id_ed25519
+    ServerAliveInterval 60
+
+# 验证连接
+ssh my-gpu-box "nvidia-smi"
+```
+
+创建根目录配置文件（不提交到 Git，设置本机全局默认值）：
+
+```yaml
+# config.yaml（项目根目录）
+ssh_server: "my-gpu-box"           # 必须和 ~/.ssh/config 中的 Host 一致
 remote_base: "/home/user/sibyl"    # 服务器上的基础目录
 max_gpus: 4                        # 使用的 GPU 数量
 language: zh                       # 中文模式（默认英文）
-EOF
 ```
+
+> 项目级覆盖配置放在 `workspaces/<project>/config.yaml`。详见[配置参考](docs/configuration.md)了解全部 35+ 配置项。
 
 ### 3. 配置 MCP 服务器
 
-在 `~/.mcp.json` 中添加必需的 MCP 服务器：
+SSH MCP **内置于 Claude Code** — 无需配置，只需确保 GPU 服务器在 `~/.ssh/config` 中即可。
+
+`setup.sh` 会自动创建 `~/.mcp.json` 并配置好必需的 arXiv 服务器。如需手动配置：
 
 ```json
 {
   "mcpServers": {
-    "ssh": { "command": "ssh-mcp-server", "args": ["--config", "~/.ssh/config"] },
-    "arxiv": { "command": "uvx", "args": ["arxiv-mcp-server"] }
+    "arxiv-mcp-server": {
+      "command": "python",
+      "args": ["-m", "arxiv_mcp_server"]
+    }
   }
 }
 ```
 
-> **可选 MCP 服务器**：Google Scholar（学术搜索）、Codex（GPT-5.4 交叉审查）、飞书（云端同步）、bioRxiv（生物预印本）。详见 [MCP 服务器指南](docs/mcp-servers.md)。
+> **重要**: 服务器名称 `"arxiv-mcp-server"` 必须完全一致 — Agent prompt 中引用的工具名为 `mcp__arxiv-mcp-server__search_papers`。
+
+> **可选 MCP 服务器**：[Google Scholar](https://github.com/JackKuo666/Google-Scholar-MCP-Server)（学术搜索）、[Codex](https://github.com/openai/codex)（GPT-5.4 交叉审查）、[Lark](https://github.com/larksuite/lark-openapi-mcp)/[飞书](https://github.com/cso1z/Feishu-MCP)（云端同步）、bioRxiv（生物预印本）、[Playwright](https://github.com/microsoft/playwright-mcp)（网页浏览）。详见 [MCP 服务器指南](docs/mcp-servers.md)。
 
 ### 4. 运行
 
@@ -311,12 +334,13 @@ workspaces/<project>/
 | 服务 | 必需 | 用途 | 来源 |
 |------|------|------|------|
 | SSH MCP | 是 | 远程 GPU 执行 | Claude Code 内置 |
-| arXiv MCP | 是 | 论文搜索 | `pip install arxiv-mcp-server` |
-| Google Scholar MCP | 推荐 | 学术引用搜索 | 社区实现 |
-| Codex MCP | 可选 | GPT-5.4 审查 | [OpenAI Codex CLI](https://github.com/openai/codex) |
-| Lark MCP | 可选 | 飞书 Bitable/IM | `@larksuiteoapi/lark-mcp` |
-| Feishu MCP | 可选 | 飞书文档操作 | 社区实现 |
-| bioRxiv MCP | 可选 | 生物预印本 | 社区实现 |
+| [arXiv MCP](https://github.com/blazickjp/arxiv-mcp-server) | 是 | 论文搜索 | `pip install arxiv-mcp-server` |
+| [Google Scholar MCP](https://github.com/JackKuo666/Google-Scholar-MCP-Server) | 推荐 | 学术引用搜索 | GitHub clone |
+| [Codex MCP](https://github.com/openai/codex) | 可选 | GPT-5.4 审查 | `npm install -g @openai/codex` |
+| [Lark MCP](https://github.com/larksuite/lark-openapi-mcp) | 可选 | 飞书 Bitable/IM | `npm install -g @larksuiteoapi/lark-mcp` |
+| [Feishu MCP](https://github.com/cso1z/Feishu-MCP) | 可选 | 飞书文档操作 | `npm install -g feishu-mcp` |
+| [bioRxiv MCP](https://github.com/JackKuo666/bioRxiv-MCP-Server) | 可选 | 生物预印本 | `pip install biorxiv-mcp-server` |
+| [Playwright MCP](https://github.com/microsoft/playwright-mcp) | 可选 | 网页浏览 | `npm install -g @playwright/mcp` |
 
 完整安装与 `~/.mcp.json` 配置见 **[MCP 服务指南](docs/mcp-servers.md)**。
 

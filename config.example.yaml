@@ -1,5 +1,6 @@
 # Sibyl System Configuration
-# Copy to workspaces/<project>/config.yaml and customize
+# Copy to project root as config.yaml for machine-level defaults (git-ignored)
+# Or to workspaces/<project>/config.yaml for project-specific overrides
 # Full reference: docs/configuration.md
 
 workspaces_dir: workspaces

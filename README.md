@@ -38,33 +38,56 @@ chmod +x setup.sh && ./setup.sh
 Set up your API key and GPU server:
 
 ```bash
-# Required
+# Required environment variables (add to ~/.zshrc or ~/.bashrc)
 export ANTHROPIC_API_KEY="sk-ant-..."
 export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
+```
 
-# GPU server — must be SSH-accessible via ~/.ssh/config
-# Create project root config (git-ignored):
-cat > config.yaml << 'EOF'
-ssh_server: "my-gpu-box"           # SSH host name
+Set up SSH access to your GPU server (skip if already configured):
+
+```bash
+# Add to ~/.ssh/config
+Host my-gpu-box
+    HostName 192.168.1.100
+    User your-username
+    IdentityFile ~/.ssh/id_ed25519
+    ServerAliveInterval 60
+
+# Verify connection
+ssh my-gpu-box "nvidia-smi"
+```
+
+Create a root-level config file (git-ignored, sets machine-level defaults):
+
+```yaml
+# config.yaml (project root)
+ssh_server: "my-gpu-box"           # Must match Host in ~/.ssh/config
 remote_base: "/home/user/sibyl"    # Base dir on GPU server
 max_gpus: 4                        # GPUs to use
-EOF
 ```
+
+> Per-project overrides go in `workspaces/<project>/config.yaml`. See [Configuration](docs/configuration.md) for all 35+ options.
 
 ### 3. Configure MCP Servers
 
-Add required MCP servers to `~/.mcp.json`:
+SSH MCP is **built into Claude Code** — no config needed. Just ensure your GPU server is in `~/.ssh/config`.
+
+`setup.sh` automatically creates `~/.mcp.json` with the required arXiv server. To configure manually:
 
 ```json
 {
   "mcpServers": {
-    "ssh": { "command": "ssh-mcp-server", "args": ["--config", "~/.ssh/config"] },
-    "arxiv": { "command": "uvx", "args": ["arxiv-mcp-server"] }
+    "arxiv-mcp-server": {
+      "command": "python",
+      "args": ["-m", "arxiv_mcp_server"]
+    }
   }
 }
 ```
 
-> **Optional MCP servers**: Google Scholar (academic search), Codex (GPT-5.4 cross-review), Lark/Feishu (cloud sync), bioRxiv (biology preprints). See [MCP Servers Guide](docs/mcp-servers.md).
+> **Important**: The server name `"arxiv-mcp-server"` must be exact — agent prompts reference tools as `mcp__arxiv-mcp-server__search_papers`.
+
+> **Optional MCP servers**: [Google Scholar](https://github.com/JackKuo666/Google-Scholar-MCP-Server) (academic search), [Codex](https://github.com/openai/codex) (GPT-5.4 cross-review), [Lark](https://github.com/larksuite/lark-openapi-mcp)/[Feishu](https://github.com/cso1z/Feishu-MCP) (cloud sync), bioRxiv (biology preprints), [Playwright](https://github.com/microsoft/playwright-mcp) (web browsing). See [MCP Servers Guide](docs/mcp-servers.md).
 
 ### 4. Run
 
@@ -309,12 +332,13 @@ workspaces/<project>/
 | Server | Required | Purpose | Source |
 |--------|----------|---------|--------|
 | SSH MCP | Yes | Remote GPU execution | Claude Code built-in |
-| arXiv MCP | Yes | Paper search | `pip install arxiv-mcp-server` |
-| Google Scholar MCP | Recommended | Citation search | Community |
-| Codex MCP | Optional | GPT-5.4 review | [OpenAI Codex CLI](https://github.com/openai/codex) |
-| Lark MCP | Optional | Feishu Bitable/IM | `@larksuiteoapi/lark-mcp` |
-| Feishu MCP | Optional | Feishu documents | Community |
-| bioRxiv MCP | Optional | Biology preprints | Community |
+| [arXiv MCP](https://github.com/blazickjp/arxiv-mcp-server) | Yes | Paper search | `pip install arxiv-mcp-server` |
+| [Google Scholar MCP](https://github.com/JackKuo666/Google-Scholar-MCP-Server) | Recommended | Citation search | GitHub clone |
+| [Codex MCP](https://github.com/openai/codex) | Optional | GPT-5.4 review | `npm install -g @openai/codex` |
+| [Lark MCP](https://github.com/larksuite/lark-openapi-mcp) | Optional | Feishu Bitable/IM | `npm install -g @larksuiteoapi/lark-mcp` |
+| [Feishu MCP](https://github.com/cso1z/Feishu-MCP) | Optional | Feishu documents | `npm install -g feishu-mcp` |
+| [bioRxiv MCP](https://github.com/JackKuo666/bioRxiv-MCP-Server) | Optional | Biology preprints | `pip install biorxiv-mcp-server` |
+| [Playwright MCP](https://github.com/microsoft/playwright-mcp) | Optional | Web browsing | `npm install -g @playwright/mcp` |
 
 See **[MCP Servers Guide](docs/mcp-servers.md)** for installation and `~/.mcp.json` configuration.
 

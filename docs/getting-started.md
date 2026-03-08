@@ -40,10 +40,11 @@ chmod +x setup.sh && ./setup.sh
 ```
 
 `setup.sh` will:
-- Create a Python virtual environment (`.venv/`)
+- Find Python 3.12+ and create a virtual environment (`.venv/`)
 - Install core dependencies (PyYAML, rich)
-- Attempt to install optional MCP servers (arXiv, paper-search, semantic-scholar)
-- Attempt to install ML dependencies (torch, transformers, etc.)
+- Install required MCP servers (arXiv)
+- Create `~/.mcp.json` if it doesn't exist (with arXiv MCP configured)
+- Check for required environment variables (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`)
 
 ### Option 2: Manual Setup
 
@@ -111,20 +112,20 @@ This interactive command will:
 
 ### 2. Configure
 
-Create project-level configuration:
+Create a root-level config file for machine-level defaults (git-ignored):
 
 ```bash
-cp config.example.yaml workspaces/<your-project>/config.yaml
+cp config.example.yaml config.yaml
 ```
 
 Edit the key fields:
 ```yaml
-ssh_server: "your-gpu-server"       # SSH host from ~/.ssh/config
+ssh_server: "your-gpu-server"       # Must match Host in ~/.ssh/config
 remote_base: "/home/you/sibyl"      # Base directory on GPU server
 max_gpus: 4                         # Max GPUs to use
 ```
 
-See [Configuration Reference](configuration.md) for all options.
+You can also create project-specific overrides in `workspaces/<project>/config.yaml` — these take priority over root config. See [Configuration Reference](configuration.md) for all options.
 
 ### 3. Start Research
 

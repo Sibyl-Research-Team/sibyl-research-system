@@ -24,7 +24,7 @@ Add your GPU server to `~/.ssh/config`:
 Host my-gpu-server
     HostName 192.168.1.100
     User your-username
-    IdentityFile ~/.ssh/id_rsa
+    IdentityFile ~/.ssh/id_ed25519
     ServerAliveInterval 60
     ServerAliveCountMax 3
 ```
