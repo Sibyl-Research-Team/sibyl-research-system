@@ -197,8 +197,11 @@ class FarsOrchestrator:
         if stage == "reflection":
             self._post_reflection_hook()
 
-        next_stage = self._get_next_stage(stage, result, score)
-        self.ws.update_stage(next_stage)
+        next_stage, new_iteration = self._get_next_stage(stage, result, score)
+        if new_iteration is not None:
+            self.ws.update_stage_and_iteration(next_stage, new_iteration)
+        else:
+            self.ws.update_stage(next_stage)
 
         if score is not None:
             self.ws.write_file(
@@ -740,8 +743,12 @@ class FarsOrchestrator:
         return score, threshold, max_iters
 
     def _get_next_stage(self, current_stage: str, result: str = "",
-                        score: float | None = None) -> str:
-        """Determine the next stage based on current stage and result."""
+                        score: float | None = None) -> tuple[str, int | None]:
+        """Determine the next stage based on current stage and result.
+
+        Returns (next_stage, new_iteration). new_iteration is non-None only
+        when the quality gate loops back for a new iteration.
+        """
         # experiment_decision: PIVOT loops back to idea_debate
         if current_stage == "experiment_decision":
             decision = self.ws.read_file("supervisor/experiment_analysis.md")
@@ -756,7 +763,7 @@ class FarsOrchestrator:
                         f"logs/idea_exp_cycle_{cycle + 1}.marker",
                         f"PIVOT at iteration {iteration}",
                     )
-                    return "idea_debate"
+                    return ("idea_debate", None)
                 else:
                     self.ws.add_error(
                         f"PIVOT requested but cycle limit reached ({cycle}/{self.config.idea_exp_cycles})"
@@ -782,15 +789,15 @@ class FarsOrchestrator:
                     f"writing/critique/revision_round_{revision_rounds + 1}.marker",
                     f"Revision round {revision_rounds + 1}, score={review_score}",
                 )
-                return "writing_integrate"
+                return ("writing_integrate", None)
 
         # init is transient: always advance to literature_search
         if current_stage == "init":
-            return "literature_search"
+            return ("literature_search", None)
 
         # lark stages: skip if lark disabled
         if current_stage == "reflection" and not self.config.lark_enabled:
-            return "quality_gate"
+            return ("quality_gate", None)
 
         # quality_gate: execute side effects and determine next stage
         if current_stage == "quality_gate":
@@ -804,7 +811,7 @@ class FarsOrchestrator:
                 if self.config.evolution_enabled:
                     from sibyl.evolution import EvolutionEngine
                     EvolutionEngine().run_cross_project_evolution()
-                return "done"
+                return ("done", None)
             else:
                 # Tag end of iteration, archive artifacts, advance counter
                 self.ws.git_tag(
@@ -817,18 +824,17 @@ class FarsOrchestrator:
                     self.ws.add_error(f"Archive failed for iteration {iteration}: {e}")
                 # Clear stale artifacts that would pollute the next iteration
                 self._clear_iteration_artifacts()
-                # Update iteration counter; stage will be set by record_result
-                self.ws.update_iteration(iteration + 1)
-                return "literature_search"  # start new iteration
+                # Iteration counter update is atomic with stage in record_result
+                return ("literature_search", iteration + 1)
 
         try:
             idx = self.STAGES.index(current_stage)
             if idx + 1 < len(self.STAGES):
-                return self.STAGES[idx + 1]
+                return (self.STAGES[idx + 1], None)
         except ValueError:
             self.ws.add_error(f"Unknown stage '{current_stage}', forcing done")
-            return "done"
-        return current_stage
+            return ("done", None)
+        return (current_stage, None)
 
     def _clear_iteration_artifacts(self):
         """Clear stale working-directory artifacts between iterations.
