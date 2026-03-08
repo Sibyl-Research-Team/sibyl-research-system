@@ -6,7 +6,7 @@ Sibyl relies on [Model Context Protocol (MCP)](https://modelcontextprotocol.io/)
 
 | MCP Server | Required | Purpose | Source |
 |------------|----------|---------|--------|
-| [SSH MCP](#ssh-mcp-server) | Yes | Remote GPU execution & file transfer | Claude Code built-in |
+| [SSH MCP](#ssh-mcp-server) | Yes | Remote GPU execution & file transfer | [classfang/ssh-mcp-server](https://github.com/classfang/ssh-mcp-server) |
 | [arXiv MCP](#arxiv-mcp-server) | Yes | Academic paper search | [blazickjp/arxiv-mcp-server](https://github.com/blazickjp/arxiv-mcp-server) |
 | [Google Scholar MCP](#google-scholar-mcp) | Recommended | Citation & author search | [JackKuo666/Google-Scholar-MCP-Server](https://github.com/JackKuo666/Google-Scholar-MCP-Server) |
 | [Codex MCP](#codex-mcp) | Optional | GPT-5.4 cross-review | [openai/codex](https://github.com/openai/codex) |
@@ -17,26 +17,49 @@ Sibyl relies on [Model Context Protocol (MCP)](https://modelcontextprotocol.io/)
 
 ## SSH MCP Server
 
-**Built into Claude Code** — no separate installation or `~/.mcp.json` entry needed.
+> GitHub: [classfang/ssh-mcp-server](https://github.com/classfang/ssh-mcp-server) · npm: [`@fangjunjie/ssh-mcp-server`](https://www.npmjs.com/package/@fangjunjie/ssh-mcp-server)
 
 **Purpose**: Execute commands on remote GPU servers, upload/download files.
 
 **Tools used**: `execute-command`, `upload`, `download`, `list-servers`
 
-**Configuration**: Add your GPU server to `~/.ssh/config`:
+### Install
 
-```
-Host my-gpu-server
-    HostName 192.168.1.100
-    User your-username
-    IdentityFile ~/.ssh/id_ed25519
-    ServerAliveInterval 60
-    ServerAliveCountMax 3
+Requires Node.js 18+:
+
+```bash
+# No global install needed — runs via npx
+npx @fangjunjie/ssh-mcp-server --help
 ```
 
-Then set `ssh_server: "my-gpu-server"` in your project `config.yaml`.
+### Configure (`~/.mcp.json`)
 
-See [SSH & GPU Setup](ssh-gpu-setup.md) for detailed server-side configuration.
+```json
+{
+  "mcpServers": {
+    "ssh-mcp-server": {
+      "command": "npx",
+      "args": ["-y", "@fangjunjie/ssh-mcp-server",
+               "--host", "192.168.1.100",
+               "--port", "22",
+               "--username", "your-username",
+               "--privateKey", "~/.ssh/id_ed25519"]
+    }
+  }
+}
+```
+
+> **Important**: The server name **must** be `"ssh-mcp-server"` — Sibyl's agent prompts reference tools as `mcp__ssh-mcp-server__execute-command`. The `--privateKey` path should point to your SSH private key.
+
+Or use `claude mcp add`:
+
+```bash
+claude mcp add ssh-mcp-server -- npx -y @fangjunjie/ssh-mcp-server \
+  --host 192.168.1.100 --port 22 --username your-username \
+  --privateKey ~/.ssh/id_ed25519
+```
+
+See [SSH & GPU Setup](ssh-gpu-setup.md) for server-side configuration.
 
 ## arXiv MCP Server
 
@@ -288,11 +311,19 @@ claude mcp add playwright -- npx -y @playwright/mcp
 
 ## Minimal `~/.mcp.json` Example
 
-A minimal configuration with only required servers:
+A minimal configuration with only the two required servers:
 
 ```json
 {
   "mcpServers": {
+    "ssh-mcp-server": {
+      "command": "npx",
+      "args": ["-y", "@fangjunjie/ssh-mcp-server",
+               "--host", "192.168.1.100",
+               "--port", "22",
+               "--username", "your-username",
+               "--privateKey", "~/.ssh/id_ed25519"]
+    },
     "arxiv-mcp-server": {
       "command": "python",
       "args": ["-m", "arxiv_mcp_server"]
@@ -301,8 +332,6 @@ A minimal configuration with only required servers:
 }
 ```
 
-SSH MCP is built into Claude Code and does not need an entry in `~/.mcp.json`.
-
 ## Full `~/.mcp.json` Example
 
 All servers configured together:
@@ -310,6 +339,13 @@ All servers configured together:
 ```json
 {
   "mcpServers": {
+    "ssh-mcp-server": {
+      "command": "npx",
+      "args": ["-y", "@fangjunjie/ssh-mcp-server",
+               "--host", "192.168.1.100", "--port", "22",
+               "--username", "your-username",
+               "--privateKey", "~/.ssh/id_ed25519"]
+    },
     "arxiv-mcp-server": {
       "command": "python",
       "args": ["-m", "arxiv_mcp_server"]

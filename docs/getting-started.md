@@ -43,7 +43,9 @@ chmod +x setup.sh && ./setup.sh
 - Find Python 3.12+ and create a virtual environment (`.venv/`)
 - Install core dependencies (PyYAML, rich)
 - Install required MCP servers (arXiv)
-- Create `~/.mcp.json` if it doesn't exist (with arXiv MCP configured)
+- Interactively configure SSH MCP server (GPU server host, user, SSH key)
+- Create `~/.mcp.json` with SSH MCP + arXiv MCP configured
+- Create `config.yaml` with GPU server settings
 - Check for required environment variables (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS`)
 
 ### Option 2: Manual Setup
@@ -59,24 +61,24 @@ python3.12 -m venv .venv
 
 ### MCP Server Setup
 
-Sibyl relies on several MCP servers. See [MCP Servers](mcp-servers.md) for full installation and configuration instructions.
+Sibyl relies on several MCP servers. `setup.sh` configures the required ones automatically. See [MCP Servers](mcp-servers.md) for full installation and configuration instructions.
 
-**Minimum required:**
-- SSH MCP Server (remote GPU execution)
-- arXiv MCP Server (literature search)
+**Required (configured by setup.sh):**
+- [SSH MCP](https://github.com/classfang/ssh-mcp-server) — remote GPU execution (`@fangjunjie/ssh-mcp-server`)
+- [arXiv MCP](https://github.com/blazickjp/arxiv-mcp-server) — literature search (`pip install arxiv-mcp-server`)
 
 **Recommended:**
-- Google Scholar MCP (academic search)
-- Codex MCP (independent cross-review)
+- [Google Scholar MCP](https://github.com/JackKuo666/Google-Scholar-MCP-Server) — academic search
+- [Codex MCP](https://github.com/openai/codex) — GPT-5.4 independent cross-review
 
 **Optional:**
-- Lark/Feishu MCP (cloud document sync)
-- bioRxiv MCP (biology preprints)
-- Playwright MCP (web browsing)
+- [Lark](https://github.com/larksuite/lark-openapi-mcp)/[Feishu](https://github.com/cso1z/Feishu-MCP) MCP — cloud document sync
+- [bioRxiv MCP](https://github.com/JackKuo666/bioRxiv-MCP-Server) — biology preprints
+- [Playwright MCP](https://github.com/microsoft/playwright-mcp) — web browsing
 
 ### GPU Server Setup
 
-See [SSH & GPU Setup](ssh-gpu-setup.md) for detailed instructions on configuring SSH access and GPU environments.
+`setup.sh` handles SSH MCP configuration interactively. For server-side setup (conda environments, GPU polling, shared resources), see [SSH & GPU Setup](ssh-gpu-setup.md).
 
 ## Load Plugin
 

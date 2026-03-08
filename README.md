@@ -70,13 +70,19 @@ max_gpus: 4                        # GPUs to use
 
 ### 3. Configure MCP Servers
 
-SSH MCP is **built into Claude Code** — no config needed. Just ensure your GPU server is in `~/.ssh/config`.
-
-`setup.sh` automatically creates `~/.mcp.json` with the required arXiv server. To configure manually:
+`setup.sh` automatically creates `~/.mcp.json` with the two required servers. To configure manually:
 
 ```json
 {
   "mcpServers": {
+    "ssh-mcp-server": {
+      "command": "npx",
+      "args": ["-y", "@fangjunjie/ssh-mcp-server",
+               "--host", "YOUR_GPU_IP",
+               "--port", "22",
+               "--username", "YOUR_USER",
+               "--privateKey", "~/.ssh/id_ed25519"]
+    },
     "arxiv-mcp-server": {
       "command": "python",
       "args": ["-m", "arxiv_mcp_server"]
@@ -85,9 +91,9 @@ SSH MCP is **built into Claude Code** — no config needed. Just ensure your GPU
 }
 ```
 
-> **Important**: The server name `"arxiv-mcp-server"` must be exact — agent prompts reference tools as `mcp__arxiv-mcp-server__search_papers`.
+> **Important**: Server names `"ssh-mcp-server"` and `"arxiv-mcp-server"` must be exact — agent prompts reference tools as `mcp__ssh-mcp-server__execute-command` and `mcp__arxiv-mcp-server__search_papers`.
 
-> **Optional MCP servers**: [Google Scholar](https://github.com/JackKuo666/Google-Scholar-MCP-Server) (academic search), [Codex](https://github.com/openai/codex) (GPT-5.4 cross-review), [Lark](https://github.com/larksuite/lark-openapi-mcp)/[Feishu](https://github.com/cso1z/Feishu-MCP) (cloud sync), bioRxiv (biology preprints), [Playwright](https://github.com/microsoft/playwright-mcp) (web browsing). See [MCP Servers Guide](docs/mcp-servers.md).
+> **Optional MCP servers**: [Google Scholar](https://github.com/JackKuo666/Google-Scholar-MCP-Server) (academic search), [Codex](https://github.com/openai/codex) (GPT-5.4 cross-review), [Lark](https://github.com/larksuite/lark-openapi-mcp)/[Feishu](https://github.com/cso1z/Feishu-MCP) (cloud sync), [bioRxiv](https://github.com/JackKuo666/bioRxiv-MCP-Server) (biology preprints), [Playwright](https://github.com/microsoft/playwright-mcp) (web browsing). See [MCP Servers Guide](docs/mcp-servers.md).
 
 ### 4. Run
 
@@ -331,7 +337,7 @@ workspaces/<project>/
 
 | Server | Required | Purpose | Source |
 |--------|----------|---------|--------|
-| SSH MCP | Yes | Remote GPU execution | Claude Code built-in |
+| [SSH MCP](https://github.com/classfang/ssh-mcp-server) | Yes | Remote GPU execution | `npx @fangjunjie/ssh-mcp-server` |
 | [arXiv MCP](https://github.com/blazickjp/arxiv-mcp-server) | Yes | Paper search | `pip install arxiv-mcp-server` |
 | [Google Scholar MCP](https://github.com/JackKuo666/Google-Scholar-MCP-Server) | Recommended | Citation search | GitHub clone |
 | [Codex MCP](https://github.com/openai/codex) | Optional | GPT-5.4 review | `npm install -g @openai/codex` |
