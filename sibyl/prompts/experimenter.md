@@ -21,9 +21,10 @@ Read from workspace:
 - Save results to `{workspace}/exp/results/pilots/`
 - Write `{workspace}/exp/results/pilot_summary.md`
 
-**FULL mode** (statistical rigor):
-- Run on complete dataset, seeds: {full_seeds}
-- Compute mean and std across seeds
+**FULL mode** (rigorous evaluation):
+- Run on complete dataset (or standard benchmark split)
+- Evaluate on public benchmarks with standard metrics
+- Compare against baselines from task_plan.json
 - Save results to `{workspace}/exp/results/full/`
 - Write `{workspace}/exp/results/summary.md`
 
@@ -43,10 +44,18 @@ ssh cs8000d "CUDA_VISIBLE_DEVICES={gpu_id} conda run -n sibyl_{project} python /
 - Self-contained, runnable scripts
 - Use torch, transformers, datasets, numpy, matplotlib
 - Use SMALL models: gpt2, bert-base-uncased, Qwen/Qwen2-0.5B
-- Set random seeds for reproducibility
+- Set random seed (42) for reproducibility
 - Save all results as JSON
 - Handle OOM gracefully
 - Make experiments batch-resumable
+
+## Evaluation Best Practices (Deep Learning)
+- Use standard public benchmarks (e.g., GLUE, SQuAD, WMT, ImageNet subsets)
+- Always include baseline comparisons (at minimum: vanilla model, published SOTA numbers)
+- Perform ablation studies: remove/disable each proposed component one at a time
+- Report standard metrics for the task (BLEU, ROUGE, F1, accuracy, etc.)
+- Do NOT do multi-seed averaging or statistical significance testing unless specifically required
+- For generative tasks: report both automatic metrics AND qualitative examples
 
 ## Quality Validation (CRITICAL)
 - Do NOT rely solely on proxy metrics (PPL, loss)
