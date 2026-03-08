@@ -796,9 +796,31 @@ class TestPromptLoading:
         prompt = load_prompt("this_does_not_exist_xyz")
         assert prompt == ""
 
-    def test_load_common_prompt(self):
+    def test_load_common_prompt_default_en(self):
+        import os
+        os.environ.pop("SIBYL_LANGUAGE", None)
         prompt = load_common_prompt()
-        assert len(prompt) > 0
+        assert "All user-facing output MUST be written in English" in prompt
+        assert "语言要求" not in prompt
+
+    def test_load_common_prompt_zh(self):
+        import os
+        os.environ["SIBYL_LANGUAGE"] = "zh"
+        try:
+            prompt = load_common_prompt()
+            assert "所有用户可见的输出必须使用中文" in prompt
+            assert "Language Requirement" not in prompt
+        finally:
+            os.environ.pop("SIBYL_LANGUAGE", None)
+
+    def test_load_common_prompt_en_explicit(self):
+        import os
+        os.environ["SIBYL_LANGUAGE"] = "en"
+        try:
+            prompt = load_common_prompt()
+            assert "All user-facing output MUST be written in English" in prompt
+        finally:
+            os.environ.pop("SIBYL_LANGUAGE", None)
 
 
 # ══════════════════════════════════════════════

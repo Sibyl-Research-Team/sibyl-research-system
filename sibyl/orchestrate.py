@@ -61,55 +61,16 @@ def load_prompt(agent_name: str, overlay_content: str | None = None) -> str:
     return base
 
 
-_LANG_BLOCK_EN = """## Language Requirement (CRITICAL)
-
-**All user-facing output MUST be written in English**, including but not limited to:
-- Research proposals (proposal.md)
-- Experiment reports and result analysis
-- Research diary and process records
-- Paper outlines and review comments
-- Discussions and conclusions
-- Error reports and suggestions
-
-The following should also use English:
-- Code and code comments
-- JSON data structure keys
-- Technical terms
-- References"""
-
-_LANG_BLOCK_ZH = """## 语言要求 (CRITICAL)
-
-**所有用户可见的输出必须使用中文**，包括但不限于：
-- 研究提案 (proposal.md)
-- 实验报告和结果分析
-- 研究日记和过程记录
-- 论文大纲和评审意见
-- 讨论和结论
-- 错误报告和建议
-
-以下可使用英文：
-- 代码和代码注释
-- JSON 数据结构的 key
-- 技术术语（首次出现时附中文解释）
-- 参考文献条目"""
-
-
 def load_common_prompt() -> str:
-    """Load the common instructions prompt with language-appropriate block.
+    """Load the common instructions prompt in the configured language.
 
     Reads SIBYL_LANGUAGE env var (set by plugin commands from action.language).
-    Default "en" (English). When "zh", replaces the English language block
-    with the Chinese version.
+    Default "en" -> loads _common.md; "zh" -> loads _common_zh.md.
     """
     import os
     lang = os.environ.get("SIBYL_LANGUAGE", "en")
-    base = load_prompt("_common")
-
-    # Replace language block based on config
-    if lang == "zh" and _LANG_BLOCK_EN in base:
-        base = base.replace(_LANG_BLOCK_EN, _LANG_BLOCK_ZH)
-
-    return base
+    filename = "_common_zh" if lang == "zh" else "_common"
+    return load_prompt(filename)
 
 
 @dataclass
