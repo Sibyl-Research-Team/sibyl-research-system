@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="image/icon.jpg" width="200" alt="Sibyl Research System">
+</p>
+
 # Sibyl Research System（西比拉研究系统）
 
 **全自主 AI 科研系统，具备自我进化能力**

@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="image/icon.jpg" width="200" alt="Sibyl Research System">
+</p>
+
 # Sibyl Research System
 
 **Fully Autonomous AI Research System with Self-Evolution**
