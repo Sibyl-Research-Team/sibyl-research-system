@@ -922,6 +922,14 @@ class TestExperimentParallel:
 class TestGpuPollingIntegration:
     """Test GPU polling path in _action_experiment_batch."""
 
+    @pytest.fixture(autouse=True)
+    def _clean_poll_marker(self):
+        """Ensure /tmp/sibyl_gpu_free.json doesn't leak between tests."""
+        marker = Path("/tmp/sibyl_gpu_free.json")
+        marker.unlink(missing_ok=True)
+        yield
+        marker.unlink(missing_ok=True)
+
     def test_poll_enabled_no_result_returns_gpu_poll(self, make_orchestrator):
         """When gpu_poll_enabled=True and no poll result, returns gpu_poll action."""
         o = make_orchestrator(stage="pilot_experiments", gpu_poll_enabled=True)
