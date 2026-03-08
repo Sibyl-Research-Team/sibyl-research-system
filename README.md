@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> An open-source alternative to [The AI Scientist](https://github.com/SakanaAI/AI-Scientist) and [AutoResearch](https://github.com/karpathy/autoresearch), built natively on [Claude Code](https://docs.anthropic.com/en/docs/claude-code) to fully leverage its agent ecosystem — skills, plugins, MCP servers, and multi-agent teams.
+> Inspired by the pioneering work of [The AI Scientist](https://github.com/SakanaAI/AI-Scientist) and [AutoResearch](https://github.com/karpathy/autoresearch), Sibyl takes the vision further by building natively on [Claude Code](https://docs.anthropic.com/en/docs/claude-code) to fully leverage its agent ecosystem — skills, plugins, MCP servers, and multi-agent teams.
 
 [中文文档](README_CN.md)
 

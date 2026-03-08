@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-> 一个 [The AI Scientist](https://github.com/SakanaAI/AI-Scientist) 和 [AutoResearch](https://github.com/karpathy/autoresearch) 的开源替代方案。原生构建于 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) 之上，充分利用其 Agent 生态——Skills、Plugins、MCP Servers 和多 Agent 团队。
+> 受 [The AI Scientist](https://github.com/SakanaAI/AI-Scientist) 和 [AutoResearch](https://github.com/karpathy/autoresearch) 等先驱工作的启发，Sibyl 在此基础上更进一步，原生构建于 [Claude Code](https://docs.anthropic.com/en/docs/claude-code) 之上，充分利用其 Agent 生态——Skills、Plugins、MCP Servers 和多 Agent 团队。
 
 [English](README.md)
 
