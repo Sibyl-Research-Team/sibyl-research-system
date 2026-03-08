@@ -275,32 +275,42 @@ def get_batch_info(workspace_root: Path, gpu_ids: list[int], mode: str = "PILOT"
 DEFAULT_FREE_THRESHOLD_MB = 2000
 
 
-def nvidia_smi_query_cmd() -> str:
+def nvidia_smi_query_cmd(include_total: bool = False) -> str:
     """Return the nvidia-smi command to query GPU memory usage.
 
-    Output format: one line per GPU, "index, memory.used [MiB]"
-    Example: "0, 512 MiB"
+    Args:
+        include_total: If True, also query memory.total for percentage calculation.
+
+    Output format (include_total=False): "index, memory.used"
+    Output format (include_total=True):  "index, memory.used, memory.total"
     """
-    return (
-        "nvidia-smi --query-gpu=index,memory.used "
-        "--format=csv,noheader,nounits"
-    )
+    fields = "index,memory.used"
+    if include_total:
+        fields += ",memory.total"
+    return f"nvidia-smi --query-gpu={fields} --format=csv,noheader,nounits"
 
 
 def parse_free_gpus(
     nvidia_smi_output: str,
     threshold_mb: int = DEFAULT_FREE_THRESHOLD_MB,
     max_gpus: int = 0,
+    aggressive_mode: bool = False,
+    aggressive_threshold_pct: int = 25,
 ) -> list[int]:
-    """Parse nvidia-smi CSV output and return GPU IDs below memory threshold.
+    """Parse nvidia-smi CSV output and return GPU IDs considered available.
 
-    Scans ALL GPUs on the machine and returns any that are free.
-    Use max_gpus to limit how many GPUs to claim.
+    Two strategies:
+    1. Normal mode: GPU is "free" if memory usage < threshold_mb (e.g., 2000 MB)
+    2. Aggressive mode: ALSO consider GPUs with usage < aggressive_threshold_pct% of total VRAM.
+       This catches GPUs that are allocated but mostly idle on shared servers.
+       Requires nvidia-smi output to include memory.total (3 columns).
 
     Args:
         nvidia_smi_output: Raw output from nvidia_smi_query_cmd()
         threshold_mb: Memory usage threshold in MB; GPUs below this are "free"
         max_gpus: Maximum number of GPUs to return; 0 = no limit
+        aggressive_mode: Enable aggressive GPU claiming
+        aggressive_threshold_pct: VRAM usage % below which GPU is claimed (aggressive mode)
 
     Returns:
         Sorted list of free GPU IDs (up to max_gpus)
@@ -310,7 +320,6 @@ def parse_free_gpus(
         line = line.strip()
         if not line:
             continue
-        # Format: "0, 512" or "0, 512 MiB" (nounits should strip MiB)
         parts = re.split(r"[,\s]+", line)
         if len(parts) < 2:
             continue
@@ -319,8 +328,23 @@ def parse_free_gpus(
             mem_used = int(float(parts[1]))
         except (ValueError, IndexError):
             continue
+
+        # Normal mode: absolute threshold
         if mem_used < threshold_mb:
             free.append(gpu_id)
+            continue
+
+        # Aggressive mode: percentage threshold
+        if aggressive_mode and len(parts) >= 3:
+            try:
+                mem_total = int(float(parts[2]))
+                if mem_total > 0:
+                    usage_pct = (mem_used / mem_total) * 100
+                    if usage_pct < aggressive_threshold_pct:
+                        free.append(gpu_id)
+            except (ValueError, IndexError):
+                pass
+
     free = sorted(free)
     if max_gpus > 0:
         free = free[:max_gpus]
@@ -334,15 +358,18 @@ def gpu_poll_wait_script(
     poll_interval_sec: int = 600,
     max_polls: int = 0,
     marker_file: str = "/tmp/sibyl_gpu_free.json",
+    aggressive_mode: bool = False,
+    aggressive_threshold_pct: int = 25,
 ) -> str:
     """Generate a bash script that polls for free GPUs via SSH.
 
     The script:
     1. Runs nvidia-smi on the remote server every poll_interval_sec seconds
     2. Checks if any candidate GPU has memory below threshold
-    3. When free GPUs are found, writes them to marker_file and exits 0
-    4. If max_polls > 0, exits 1 after that many attempts (timeout)
-    5. If max_polls == 0 (default), polls indefinitely until GPUs are free
+    3. In aggressive mode, also claims GPUs with <aggressive_threshold_pct% VRAM usage
+    4. When free GPUs are found, writes them to marker_file and exits 0
+    5. If max_polls > 0, exits 1 after that many attempts (timeout)
+    6. If max_polls == 0 (default), polls indefinitely until GPUs are free
 
     This runs as a pure bash command — no LLM tokens consumed during polling.
 
@@ -353,6 +380,8 @@ def gpu_poll_wait_script(
         poll_interval_sec: Seconds between polls (default 600 = 10 min)
         max_polls: Maximum poll attempts; 0 = infinite (no timeout)
         marker_file: Path to write free GPU IDs JSON when found
+        aggressive_mode: Also claim GPUs with low VRAM usage percentage
+        aggressive_threshold_pct: VRAM usage % threshold for aggressive mode
 
     Returns:
         Bash script string
@@ -370,16 +399,44 @@ exit 1"""
         loop_header = "i=0\nwhile true; do\n    i=$((i + 1))"
         loop_footer = "done"
 
+    # Aggressive mode needs memory.total for percentage calculation
+    if aggressive_mode:
+        smi_fields = "index,memory.used,memory.total"
+        aggressive_check = f"""
+        # Aggressive mode: also claim GPUs with <{aggressive_threshold_pct}% VRAM usage
+        if [ -n "$total" ] && [ "$total" -gt 0 ] 2>/dev/null; then
+            pct=$(( mem * 100 / total ))
+            if [ "$pct" -lt {aggressive_threshold_pct} ] 2>/dev/null; then
+                if [ -z "$FREE_GPUS" ]; then
+                    FREE_GPUS="$idx"
+                else
+                    FREE_GPUS="$FREE_GPUS,$idx"
+                fi
+            fi
+        fi"""
+        read_line = 'while IFS=\',\' read -r idx mem total; do'
+        clean_vars = """        idx=$(echo "$idx" | tr -d ' ')
+        mem=$(echo "$mem" | tr -d ' ')
+        total=$(echo "$total" | tr -d ' ')"""
+        mode_label = f"aggressive (<{aggressive_threshold_pct}% VRAM)"
+    else:
+        smi_fields = "index,memory.used"
+        aggressive_check = ""
+        read_line = "while IFS=',' read -r idx mem; do"
+        clean_vars = """        idx=$(echo "$idx" | tr -d ' ')
+        mem=$(echo "$mem" | tr -d ' ')"""
+        mode_label = "normal"
+
     return f'''#!/bin/bash
 # Sibyl GPU poll: wait for free GPUs on {ssh_server}
-# Candidates: [{gpu_ids_str}], threshold: {threshold_mb}MB
+# Candidates: [{gpu_ids_str}], threshold: {threshold_mb}MB, mode: {mode_label}
 # Poll every {poll_interval_sec}s, {limit_label} attempts
 
 MARKER="{marker_file}"
 rm -f "$MARKER"
 
 {loop_header}
-    OUTPUT=$(ssh {ssh_server} "nvidia-smi --query-gpu=index,memory.used --format=csv,noheader,nounits" 2>/dev/null)
+    OUTPUT=$(ssh {ssh_server} "nvidia-smi --query-gpu={smi_fields} --format=csv,noheader,nounits" 2>/dev/null)
     if [ $? -ne 0 ]; then
         echo "[poll $i] SSH failed, retrying in {poll_interval_sec}s..."
         sleep {poll_interval_sec}
@@ -388,9 +445,8 @@ rm -f "$MARKER"
 
     # Parse free GPUs
     FREE_GPUS=""
-    while IFS=',' read -r idx mem; do
-        idx=$(echo "$idx" | tr -d ' ')
-        mem=$(echo "$mem" | tr -d ' ')
+    {read_line}
+{clean_vars}
         # Check if this GPU is in our candidate list
         case ",{gpu_ids_str}," in
             *",$idx,"*)
@@ -400,7 +456,7 @@ rm -f "$MARKER"
                     else
                         FREE_GPUS="$FREE_GPUS,$idx"
                     fi
-                fi
+                fi{aggressive_check}
                 ;;
         esac
     done <<< "$OUTPUT"

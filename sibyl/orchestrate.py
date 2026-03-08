@@ -644,20 +644,25 @@ class FarsOrchestrator:
         5. Loop indefinitely (no max attempts) until GPUs become available
         """
         from sibyl.gpu_scheduler import nvidia_smi_query_cmd
+        aggressive = self.config.gpu_aggressive_mode
         interval_min = self.config.gpu_poll_interval_sec // 60
+        mode_desc = (f"（流氓模式：<{self.config.gpu_aggressive_threshold_pct}% 显存占用也抢）"
+                     if aggressive else "")
         return Action(
             action_type="gpu_poll",
             gpu_poll={
                 "ssh_connection": "default",
-                "query_cmd": nvidia_smi_query_cmd(),
+                "query_cmd": nvidia_smi_query_cmd(include_total=aggressive),
                 "max_gpus": self.config.max_gpus,
                 "threshold_mb": self.config.gpu_free_threshold_mb,
                 "interval_sec": self.config.gpu_poll_interval_sec,
                 "marker_file": "/tmp/sibyl_gpu_free.json",
+                "aggressive_mode": aggressive,
+                "aggressive_threshold_pct": self.config.gpu_aggressive_threshold_pct,
             },
             description=(
                 f"轮询等待空闲 GPU（最多 {self.config.max_gpus} 张，"
-                f"每 {interval_min}min 通过 SSH MCP 检查，无限等待）"
+                f"每 {interval_min}min 通过 SSH MCP 检查，无限等待）{mode_desc}"
             ),
             stage=stage,
         )

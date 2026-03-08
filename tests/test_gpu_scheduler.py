@@ -592,3 +592,81 @@ class TestReadPollResult:
         marker.write_text(json.dumps({"poll_count": 5}))
         result = read_poll_result(str(marker))
         assert result == []  # default from .get()
+
+
+# ══════════════════════════════════════════════
+# Aggressive GPU mode
+# ══════════════════════════════════════════════
+
+class TestAggressiveMode:
+    """Test aggressive GPU claiming based on VRAM usage percentage."""
+
+    def test_normal_mode_ignores_high_usage(self):
+        # GPU 0: 5000/24000 MB (20%) — above 2000MB threshold, normal mode rejects
+        output = "0, 5000, 24000\n1, 100, 24000"
+        free = parse_free_gpus(output, threshold_mb=2000, aggressive_mode=False)
+        assert free == [1]  # only GPU 1 is truly free
+
+    def test_aggressive_mode_claims_low_pct(self):
+        # GPU 0: 5000/24000 MB (20.8%) — above 2000MB but below 25% → claimed
+        # GPU 1: 100/24000 MB — below 2000MB → free normally
+        # GPU 2: 8000/24000 MB (33%) — above both thresholds → not claimed
+        output = "0, 5000, 24000\n1, 100, 24000\n2, 8000, 24000"
+        free = parse_free_gpus(
+            output, threshold_mb=2000,
+            aggressive_mode=True, aggressive_threshold_pct=25,
+        )
+        assert free == [0, 1]
+
+    def test_aggressive_mode_respects_max_gpus(self):
+        output = "0, 3000, 24000\n1, 4000, 24000\n2, 100, 24000"
+        free = parse_free_gpus(
+            output, threshold_mb=2000, max_gpus=1,
+            aggressive_mode=True, aggressive_threshold_pct=25,
+        )
+        assert len(free) == 1
+
+    def test_aggressive_mode_without_total_column(self):
+        # Only 2 columns → aggressive check skipped, falls back to normal
+        output = "0, 5000\n1, 100"
+        free = parse_free_gpus(
+            output, threshold_mb=2000,
+            aggressive_mode=True, aggressive_threshold_pct=25,
+        )
+        assert free == [1]  # only normal threshold applies
+
+    def test_aggressive_threshold_boundary(self):
+        # GPU at exactly 25% → not claimed (must be strictly less than)
+        output = "0, 6000, 24000"  # 6000/24000 = 25.0%
+        free = parse_free_gpus(
+            output, threshold_mb=2000,
+            aggressive_mode=True, aggressive_threshold_pct=25,
+        )
+        assert free == []
+
+    def test_aggressive_just_below_threshold(self):
+        # GPU at 24.9% → claimed
+        output = "0, 5976, 24000"  # 5976/24000 = 24.9%
+        free = parse_free_gpus(
+            output, threshold_mb=2000,
+            aggressive_mode=True, aggressive_threshold_pct=25,
+        )
+        assert free == [0]
+
+    def test_nvidia_smi_query_includes_total(self):
+        cmd = nvidia_smi_query_cmd(include_total=True)
+        assert "memory.total" in cmd
+
+    def test_nvidia_smi_query_no_total_by_default(self):
+        cmd = nvidia_smi_query_cmd()
+        assert "memory.total" not in cmd
+
+    def test_poll_script_aggressive_mode(self):
+        script = gpu_poll_wait_script(
+            ssh_server="cs8000d",
+            candidate_gpu_ids=[0, 1],
+            aggressive_mode=True,
+            aggressive_threshold_pct=25,
+        )
+        assert "aggressive" in script.lower() or "流氓" in script or "pct" in script
+        assert "memory.total" in script

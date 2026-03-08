@@ -34,6 +34,11 @@ class Config:
     gpu_poll_interval_sec: int = 600   # seconds between polls (10 min)
     gpu_poll_max_attempts: int = 0     # 0 = infinite (no timeout)
 
+    # Aggressive GPU mode: treat GPUs with <25% VRAM usage as available
+    # Useful on shared servers where GPUs are allocated but mostly idle
+    gpu_aggressive_mode: bool = False
+    gpu_aggressive_threshold_pct: int = 25  # VRAM usage % below which GPU is "available"
+
     # Pilot experiments
     pilot_samples: int = 16
     pilot_timeout: int = 600  # 10 min
@@ -99,6 +104,7 @@ class Config:
             "ssh_server", "remote_base", "gpus_per_task", "max_gpus",
             "gpu_poll_enabled", "gpu_free_threshold_mb",
             "gpu_poll_interval_sec", "gpu_poll_max_attempts",
+            "gpu_aggressive_mode", "gpu_aggressive_threshold_pct",
             "pilot_samples", "pilot_timeout",
             "debate_rounds", "writing_revision_rounds",
             "lark_enabled", "evolution_enabled",
