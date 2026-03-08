@@ -44,15 +44,36 @@ Sibyl 的所有 agent 角色已封装为 `context: fork` skill，运行在独立
 |---|---|
 | `skill` | 单个 fork skill 执行 |
 | `skills_parallel` | 多个 fork skill 并行 |
+| `team` | Agent Team 多人协作（辩论阶段），可含 `codex_step` |
 | `agents_parallel` | 遗留：cross-critique 仍用此方式（6 个动态 prompt） |
 | `bash` | 执行 shell 命令 |
-| `lark_sync` | 飞书同步（已统一为 skill，实际 action_type 为 `skill`） |
 | `done` / `paused` | 终止/暂停 |
+
+### Codex 集成
+- `codex_enabled`: 启用后，idea_debate、result_debate、supervisor_review 阶段自动引入 Codex 独立审查
+- team action 的 `codex_step` 字段指定 Codex 审查 skill，在 team 讨论后执行
+- Codex 来源: OpenAI Codex CLI (`codex mcp-server` stdio)，配置在 `~/.codex/config.toml`
+- 实际模型: gpt-5.4 high（由 config.toml 配置，MCP 调用时**不传 model 参数**，设 `approval-policy: "never"`）
+
+### 写作模式 (`writing_mode`)
+| 模式 | 说明 |
+|---|---|
+| `sequential` | 单 agent 按章节顺序写作（默认，确保一致性） |
+| `parallel` | 6 个 agent 并行写作（速度快但一致性差） |
+| `codex` | 通过 Codex (gpt-5.4 high) 撰写论文 |
+
+### 实验执行模式 (`experiment_mode`)
+| 模式 | 说明 |
+|---|---|
+| `ssh_mcp` | 通过 SSH MCP 逐条命令交互（默认） |
+| `server_codex` | 在服务器上启动 Codex CLI 本地执行 |
+| `server_claude` | 在服务器上启动 Claude CLI 本地执行 |
 
 ### 模型选择
 - 默认 session 模型: **Sonnet**（最佳性价比）
 - Agent tier 通过 `.claude/agents/sibyl-{heavy,standard,light}.md` 声明式配置
 - 纯轻量任务（交叉批评、结果辩论）自动使用 Sonnet
+- Codex 任务使用 `gpt-5.4-high`
 
 ## Git 提交规则（强制）
 

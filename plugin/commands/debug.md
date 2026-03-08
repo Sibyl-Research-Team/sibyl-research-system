@@ -63,12 +63,11 @@ cd /Users/cwan0785/sibyl-system && .venv/bin/python3 -c "from sibyl.orchestrate 
      cd /Users/cwan0785/sibyl-system && .venv/bin/python3 -c "from sibyl.orchestrate import cli_resume; cli_resume('workspaces/PROJECT')"
      ```
 
-1.5. **创建进度 Task**：
+1.5. **创建当前步骤 Task**（仅追踪本次单步执行）：
    - 调用 `cli_status` 获取当前 stage 和 iteration
-   - 使用 `TaskCreate` 创建一个主任务：
-     - title: `西比拉 [{project}] 调试 #{iteration}`
-     - 内容: 列出从当前 stage 到 done 的所有剩余阶段作为 checklist
-     - 阶段全集（按顺序）: literature_search → idea_debate → planning → pilot_experiments → experiment_cycle → result_debate → experiment_decision → writing_outline → writing_sections → writing_critique → writing_integrate → writing_final_review → writing_latex → review → reflection → lark_sync → quality_gate → done
+   - 使用 `TaskCreate` 创建一个 task：
+     - subject: `[{project}] debug #{iteration} - {current_stage}`
+     - description: 当前阶段的简要说明
 
 2. **单步获取下一个 action**：
 ```bash
@@ -87,15 +86,39 @@ cd /Users/cwan0785/sibyl-system && .venv/bin/python3 -c "from sibyl.orchestrate 
 4. **执行该 action**（同编排循环逻辑）：
 
    "skill": 使用 Skill 工具调用对应的 sibyl skill。
-   "team": 使用 Agent Team 进行多 agent 协作讨论。
-     1. 使用 TeamCreate 创建团队，team_name 为 "sibyl-{stage}"
-     2. 读取 action 的 team.prompt
-     3. 根据 team.prompt 中的指令，使用 TaskCreate 创建各 teammate 的任务
-     4. 使用 Agent 工具（带 team_name 和 name 参数）启动各 teammate
-     5. 通过 TaskUpdate 分配任务给各 teammate
-     6. 等待所有 teammates 完成任务（通过 TaskList 检查）
-     7. 使用 SendMessage (type: "shutdown_request") 关闭各 teammate
-     8. 收集各 teammate 写入的产出文件
+   "team": 使用 Agent Team 进行结构化多 agent 协作讨论。
+     前置条件：需要环境变量 CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
+     action.team 包含结构化字段：team_name, teammates[], post_steps[], prompt
+     1. TeamCreate(team_name=action.team.team_name)
+     2. 遍历 action.team.teammates，为每个 teammate:
+        a. TaskCreate(
+             subject=teammate.name,
+             description="调用 Skill /teammate.skill teammate.args"
+           )
+        b. 记住返回的 taskId
+     3. 并行启动所有 teammates（使用 Agent 工具）:
+        对每个 teammate:
+          - team_name: action.team.team_name
+          - name: teammate.name
+          - subagent_type: "general-purpose"（需要完整工具访问）
+          - prompt: "你是 {teammate.name}，请查看 TaskList 找到分配给你的任务，
+                     用 TaskUpdate(status='in_progress') 标记开始，
+                     然后按 description 中的指令执行 Skill，
+                     完成后 TaskUpdate(status='completed')"
+     4. 由 Lead（当前 session）为每个 teammate 分配任务:
+        TaskUpdate(taskId=对应taskId, owner=teammate.name)
+        注意：Lead 主动分配，而非让 teammate 自行认领
+     5. 等待所有 teammates 完成:
+        teammate 完成任务后会自动发送 idle 通知到 lead，无需轮询。
+        当所有 teammate 都 idle 且 TaskList 显示全部 completed 时继续。
+     6. 逐一关闭各 teammate:
+        SendMessage(type="shutdown_request", recipient=teammate.name,
+                    content="任务完成，请关闭")
+        teammate 收到后用 SendMessage(type="shutdown_response", approve=true) 回复
+     7. 顺序执行 action.team.post_steps（如有）:
+        - type="skill": 使用 Skill 工具调用（如 sibyl-synthesizer）
+        - type="codex": 使用 Skill 工具调用 sibyl-codex-reviewer
+     8. 收集 teammates 和 post_steps 写入的产出文件
    "bash": 执行 bash_command。
    "lark_sync": 由 sibyl-lark-sync skill 自动执行飞书同步。
    "paused": 自动 resume 并重新获取 action。
@@ -108,7 +131,7 @@ cd /Users/cwan0785/sibyl-system && .venv/bin/python3 -c "from sibyl.orchestrate 
 
 5.5. **阶段间处理**（cli_record 成功后执行）：
 
-   a0. **更新进度 Task**：使用 TaskUpdate 标记刚完成的 stage 为完成状态。
+   a0. **更新进度 Task**：TaskUpdate(taskId=步骤1.5创建的taskId, status="completed")。
 
    a. **阶段汇总**：用 1-3 句中文总结本阶段完成的工作和关键发现。
       如果是长上下文阶段（literature_search, idea_debate, experiment_*,

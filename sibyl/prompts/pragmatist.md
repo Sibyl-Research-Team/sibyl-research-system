@@ -21,7 +21,19 @@ Requirements:
 ## Output
 Write your idea to `{workspace}/idea/perspectives/pragmatist.md`
 
+## 文献搜索（必做）
+
+在生成提案前，**必须**针对你的实用方向进行针对性文献搜索，补充前置文献调研中可能未覆盖的方向：
+
+1. **arXiv 搜索**（`mcp__arxiv-mcp-server__search_papers`）：搜索你提案涉及的方法关键词，重点关注有开源代码的论文，至少 2 次搜索
+2. **Web 搜索**（`WebSearch`）：搜索具体方法的开源实现（GitHub）、benchmark 结果、工程经验
+3. **Google Scholar**（`mcp__google-scholar__search_google_scholar_key_words`）：搜索方法论的核心引用
+
+将搜索到的关键文献和开源资源融入你的提案中，标注引用来源。重点关注可直接复用的代码和预训练模型。
+
 ## Tool Usage
-- Use `WebSearch` for recent papers and implementations
+- Use `mcp__arxiv-mcp-server__search_papers` for arXiv paper search
+- Use `mcp__google-scholar__search_google_scholar_key_words` for high-citation papers
+- Use `WebSearch` for recent papers, implementations, and GitHub repos
 - Use `Read` to check existing workspace files for context
 - Use `Write` to save your output
