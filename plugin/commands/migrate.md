@@ -13,5 +13,5 @@ argument-hint: "<project>"
 
 执行以下命令：
 ```bash
-cd /Users/cwan0785/sibyl-system && .venv/bin/python3 -c "from sibyl.orchestrate import cli_migrate; cli_migrate('workspaces/$ARGUMENTS')"
+cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_migrate; cli_migrate('workspaces/$ARGUMENTS')"
 ```

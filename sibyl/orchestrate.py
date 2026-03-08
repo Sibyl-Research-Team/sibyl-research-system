@@ -121,7 +121,15 @@ class FarsOrchestrator:
     ]
 
     def __init__(self, workspace_path: str, config: Config | None = None):
-        self.config = config or Config()
+        if config is not None:
+            self.config = config
+        else:
+            # Auto-load project-level config.yaml if it exists
+            project_config = Path(workspace_path) / "config.yaml"
+            if project_config.exists():
+                self.config = Config.from_yaml(str(project_config))
+            else:
+                self.config = Config()
         self.ws = Workspace(
             self.config.workspaces_dir,
             Path(workspace_path).name,

@@ -9,7 +9,7 @@ argument-hint: "<project>"
 
 **所有用户可见的输出必须使用中文。**
 
-工作目录: `/Users/cwan0785/sibyl-system`
+工作目录: 项目根目录（通过 $SIBYL_ROOT 或 cd 到 clone 位置）
 
 参数: `$ARGUMENTS`（项目名称）
 

@@ -10,5 +10,5 @@ description: "查看所有西比拉研究项目状态"
 
 执行以下命令：
 ```bash
-cd /Users/cwan0785/sibyl-system && .venv/bin/python3 -c "from sibyl.orchestrate import cli_list_projects; cli_list_projects()"
+cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_list_projects; cli_list_projects()"
 ```

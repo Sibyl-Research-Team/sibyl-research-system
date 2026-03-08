@@ -9,7 +9,7 @@ Debug 模式：单步执行编排循环，不启动 Ralph Loop，方便调试和
 
 **所有用户可见的输出必须使用中文。**
 
-工作目录: `/Users/cwan0785/sibyl-system`
+工作目录: 项目根目录（通过 $SIBYL_ROOT 或 cd 到 clone 位置）
 
 ## Python 环境
 
@@ -42,7 +42,7 @@ Debug 模式：单步执行编排循环，不启动 Ralph Loop，方便调试和
 
 然后执行以下命令获取当前所有项目快照并在横幅中展示：
 ```bash
-cd /Users/cwan0785/sibyl-system && .venv/bin/python3 -c "from sibyl.orchestrate import cli_list_projects; cli_list_projects()"
+cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_list_projects; cli_list_projects()"
 ```
 展示项目状态表格。
 
@@ -52,15 +52,15 @@ cd /Users/cwan0785/sibyl-system && .venv/bin/python3 -c "from sibyl.orchestrate 
      - **已存在**：跳过初始化，直接进入步骤 2
      - **不存在 + 参数是 .md 路径**：
        ```bash
-       cd /Users/cwan0785/sibyl-system && .venv/bin/python3 -c "from sibyl.orchestrate import cli_init_from_spec; cli_init_from_spec('SPEC_PATH')"
+       cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_init_from_spec; cli_init_from_spec('SPEC_PATH')"
        ```
      - **不存在 + 参数是纯文本**：
        ```bash
-       cd /Users/cwan0785/sibyl-system && .venv/bin/python3 -c "from sibyl.orchestrate import cli_init; cli_init('TOPIC')"
+       cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_init; cli_init('TOPIC')"
        ```
    - 如果项目处于 paused 状态，自动 resume：
      ```bash
-     cd /Users/cwan0785/sibyl-system && .venv/bin/python3 -c "from sibyl.orchestrate import cli_resume; cli_resume('workspaces/PROJECT')"
+     cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_resume; cli_resume('workspaces/PROJECT')"
      ```
 
 1.5. **创建当前步骤 Task**（仅追踪本次单步执行）：
@@ -71,7 +71,7 @@ cd /Users/cwan0785/sibyl-system && .venv/bin/python3 -c "from sibyl.orchestrate 
 
 2. **单步获取下一个 action**：
 ```bash
-cd /Users/cwan0785/sibyl-system && .venv/bin/python3 -c "from sibyl.orchestrate import cli_next; cli_next('workspaces/PROJECT')"
+cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_next; cli_next('workspaces/PROJECT')"
 ```
 
 3. **显示 action 详情**，格式：
@@ -126,7 +126,7 @@ cd /Users/cwan0785/sibyl-system && .venv/bin/python3 -c "from sibyl.orchestrate 
 
 5. **记录结果**：
 ```bash
-cd /Users/cwan0785/sibyl-system && .venv/bin/python3 -c "from sibyl.orchestrate import cli_record; cli_record('workspaces/PROJECT', 'STAGE')"
+cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_record; cli_record('workspaces/PROJECT', 'STAGE')"
 ```
 
 5.5. **阶段间处理**（cli_record 成功后执行）：

@@ -746,6 +746,42 @@ class TestCLI:
         assert FarsOrchestrator._slugify("Test_123") == "test-123"
         assert len(FarsOrchestrator._slugify("x" * 100)) <= 60
 
+    def test_auto_loads_project_config(self, tmp_path, monkeypatch):
+        """Orchestrator should auto-load config.yaml from workspace dir."""
+        monkeypatch.chdir(tmp_path)
+        # Create workspace with a project config.yaml
+        ws_dir = tmp_path / "workspaces" / "cfg-proj"
+        ws_dir.mkdir(parents=True)
+        (ws_dir / "status.json").write_text(
+            json.dumps({"stage": "init", "started_at": 1.0, "updated_at": 1.0,
+                         "iteration": 0, "errors": [], "paused_at": 0.0,
+                         "resume_after_sync": "", "iteration_dirs": False}),
+            encoding="utf-8",
+        )
+        (ws_dir / "topic.txt").write_text("test", encoding="utf-8")
+        (ws_dir / "config.yaml").write_text(
+            "ssh_server: my-custom-server\nremote_base: /data/experiments\n",
+            encoding="utf-8",
+        )
+        o = FarsOrchestrator(str(ws_dir))
+        assert o.config.ssh_server == "my-custom-server"
+        assert o.config.remote_base == "/data/experiments"
+
+    def test_no_project_config_uses_defaults(self, tmp_path, monkeypatch):
+        """Without config.yaml, orchestrator should use default Config."""
+        monkeypatch.chdir(tmp_path)
+        ws_dir = tmp_path / "workspaces" / "no-cfg-proj"
+        ws_dir.mkdir(parents=True)
+        (ws_dir / "status.json").write_text(
+            json.dumps({"stage": "init", "started_at": 1.0, "updated_at": 1.0,
+                         "iteration": 0, "errors": [], "paused_at": 0.0,
+                         "resume_after_sync": "", "iteration_dirs": False}),
+            encoding="utf-8",
+        )
+        (ws_dir / "topic.txt").write_text("test", encoding="utf-8")
+        o = FarsOrchestrator(str(ws_dir))
+        assert o.config.ssh_server == "gpu-server"  # default
+
 
 # ══════════════════════════════════════════════
 # Prompt loading

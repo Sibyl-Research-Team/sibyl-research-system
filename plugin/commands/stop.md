@@ -9,7 +9,7 @@ argument-hint: "<project>"
 
 **所有用户可见的输出必须使用中文。**
 
-工作目录: `/Users/cwan0785/sibyl-system`
+工作目录: 项目根目录（通过 $SIBYL_ROOT 或 cd 到 clone 位置）
 
 参数: `$ARGUMENTS`（项目名称）
 
@@ -17,7 +17,7 @@ argument-hint: "<project>"
 
 1. 暂停项目：
 ```bash
-cd /Users/cwan0785/sibyl-system && .venv/bin/python3 -c "from sibyl.orchestrate import cli_pause; cli_pause('workspaces/$ARGUMENTS', 'user_stop')"
+cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_pause; cli_pause('workspaces/$ARGUMENTS', 'user_stop')"
 ```
 
 2. 取消 Ralph Loop（关闭 stop hook 循环）：

@@ -25,8 +25,8 @@ class Config:
     # GPU scheduling
     max_gpus: int = 4  # max GPUs to use (picks any free ones, not fixed IDs)
     gpus_per_task: int = 1
-    ssh_server: str = "cs8000d"
-    remote_base: str = "/home/ccwang/sibyl_system"
+    ssh_server: str = "gpu-server"
+    remote_base: str = "/home/user/sibyl_system"
 
     # GPU polling (for shared servers with other users)
     gpu_poll_enabled: bool = True
