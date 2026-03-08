@@ -174,11 +174,12 @@ class Workspace:
         return None
 
     def list_files(self, rel_dir: str = "") -> list[str]:
-        target = self._check_path(rel_dir) if rel_dir else self.root.resolve()
+        root_resolved = self.root.resolve()
+        target = self._check_path(rel_dir).resolve() if rel_dir else root_resolved
         if not target.exists():
             return []
         return [
-            str(p.relative_to(self.root))
+            str(p.relative_to(root_resolved))
             for p in target.rglob("*") if p.is_file() and not p.is_symlink()
         ]
 
