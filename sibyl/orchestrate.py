@@ -1553,22 +1553,20 @@ def cli_checkpoint(workspace_path: str, stage: str, step_id: str):
     print(json.dumps({"status": "ok", "stage": stage, "step": step_id}))
 
 
-def cli_experiment_status(workspace_path: str = "", display_only: bool = False):
+def cli_experiment_status(workspace_path: str = ""):
     """CLI: Check experiment status with rich progress information.
 
     Combines monitor status, gpu_progress.json, and task_plan.json to
     produce a comprehensive status report for user display.
 
-    Args:
-        workspace_path: Path to the project workspace.
-        display_only: If True, print only the formatted display string
-            (human-readable panel) instead of JSON. This avoids the output
-            being collapsed in Claude Code's Bash UI.
-
     Output JSON includes:
         status, completed, running, pending, total,
         elapsed_min, estimated_remaining_min,
         display (formatted string for direct output to user)
+
+    Note: The caller should extract the 'display' field from the JSON
+    and output it as a text message to the user. Do NOT rely on Bash
+    stdout for display — Claude Code's UI collapses long Bash output.
     """
     import datetime as _dt
     from sibyl.gpu_scheduler import read_monitor_result, _load_progress
@@ -1687,8 +1685,7 @@ def cli_experiment_status(workspace_path: str = "", display_only: bool = False):
     )
     lines.append("")
 
-    display_str = "\n".join(lines)
-    result["display"] = display_str
+    result["display"] = "\n".join(lines)
     result["completed_count"] = len(completed)
     result["running_count"] = len(running_ids)
     result["pending_count"] = pending_count
@@ -1696,10 +1693,7 @@ def cli_experiment_status(workspace_path: str = "", display_only: bool = False):
     result["elapsed_min"] = elapsed_min
     result["estimated_remaining_min"] = est_remaining_min
 
-    if display_only:
-        print(display_str)
-    else:
-        print(json.dumps(result, indent=2, ensure_ascii=False))
+    print(json.dumps(result, indent=2, ensure_ascii=False))
 
 
 def cli_dispatch_tasks(workspace_path: str):

@@ -108,8 +108,9 @@ LOOP:
          1. 等待 experiment_monitor.poll_interval_sec 秒
          2. 用 SSH MCP execute-command 执行 check_cmd，解析 task_id:DONE/PENDING
          3. **打印状态面板（每次轮询必须执行）：**
-            调用 cli_experiment_status 直接输出格式化面板（使用 display_only=True 避免 JSON 被折叠）:
-            .venv/bin/python3 -c "from sibyl.orchestrate import cli_experiment_status; cli_experiment_status('WORKSPACE_PATH', display_only=True)"
+            调用 cli_experiment_status 获取状态 JSON:
+            .venv/bin/python3 -c "from sibyl.orchestrate import cli_experiment_status; cli_experiment_status('WORKSPACE_PATH')"
+            从返回的 JSON 中提取 display 字段的值，然后**直接用文本消息输出给用户**（不要通过 Bash print，Bash 输出会被 UI 折叠）。
 
          4. 读取 marker_file 检查状态:
             - status="all_complete": 所有任务完成，跳出循环
@@ -131,7 +132,7 @@ LOOP:
        2. 使用 Bash 工具后台执行: `bash /tmp/sibyl_exp_monitor.sh &`
        3. 监控脚本定期 SSH 检查 DONE 标记文件，进度写入 marker_file
        4. 主 session 定期读取 marker_file，dispatch_needed=true 时调用 cli_dispatch_tasks
-       5. 每次读取 marker_file 后调用 cli_experiment_status(display_only=True) 打印状态面板
+       5. 每次读取 marker_file 后调用 cli_experiment_status 获取 JSON，提取 display 字段用文本消息输出给用户
      "agents_parallel": 并行启动多个 agent（如 cross-critique 的 6 个动态 prompt agent）。
        对 agents 列表中的每个 agent，使用 Agent 工具并行启动。
      "team": 使用 Agent Team 进行结构化多 agent 协作讨论。

@@ -143,14 +143,10 @@ LOOP:
          1. 等待 experiment_monitor.poll_interval_sec 秒
          2. 用 SSH MCP execute-command 执行 check_cmd，解析 task_id:DONE/PENDING
          3. **打印状态面板（每次轮询必须执行）：**
-            调用 cli_experiment_status 直接输出格式化面板（使用 display_only=True 避免 JSON 被折叠）:
-            .venv/bin/python3 -c "from sibyl.orchestrate import cli_experiment_status; cli_experiment_status('WORKSPACE_PATH', display_only=True)"
-            输出内容包含:
-            - 进度条（已完成/总任务）
-            - 运行中任务列表（任务名、GPU、已运行时间）
-            - 排队任务数
-            - 已运行时间和预计剩余时间
-            - "系统正常运行中，请耐心等待..." 提示
+            调用 cli_experiment_status 获取状态 JSON:
+            .venv/bin/python3 -c "from sibyl.orchestrate import cli_experiment_status; cli_experiment_status('WORKSPACE_PATH')"
+            从返回的 JSON 中提取 display 字段的值，然后**直接用文本消息输出给用户**（不要通过 Bash print，Bash 输出会被 UI 折叠）。
+            示例：拿到 result 后，直接在对话中输出 result.display 的内容。
 
          4. 读取 marker_file 检查状态:
             - status="all_complete": 所有任务完成，跳出循环
