@@ -115,8 +115,7 @@ LOOP:
        7. 使用 SendMessage (type: "shutdown_request") 关闭各 teammate
        8. 收集各 teammate 写入的产出文件
      "bash": 执行 bash_command。
-     "lark_sync": 使用 Lark MCP 工具同步数据。
-     "lark_upload": 上传 PDF 和文档到飞书。
+     "lark_sync": 由 sibyl-lark-sync skill 自动执行飞书同步（文档分卷上传、多维表格、通知）。
      "paused": 项目已暂停，每 5 分钟检查一次，最长等待 5 小时。
      "done": 报告完成，输出 <promise>SIBYL_PIPELINE_COMPLETE</promise>。
 
@@ -144,9 +143,8 @@ LOOP:
         - 格式: ## [STAGE] YYYY-MM-DD HH:MM\n<汇总内容>\n
 
      c. 飞书同步（轻量版）:
-        - 将研究日记同步到飞书: mcp__lark__docx_builtin_import
-        - 读取 logs/research_diary.md，导入为飞书文档
-        - 如果飞书 MCP 不可用或报错，跳过（不阻塞流水线）
+        - 跳过：完整飞书同步在 lark_sync 阶段由 sibyl-lark-sync skill 统一执行
+        - 如需手动触发：/sibyl-research:sync {project}
 
      d. 压缩上下文:
         - 执行 /compact 压缩当前会话上下文

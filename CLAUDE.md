@@ -46,7 +46,7 @@ Sibyl 的所有 agent 角色已封装为 `context: fork` skill，运行在独立
 | `skills_parallel` | 多个 fork skill 并行 |
 | `agents_parallel` | 遗留：cross-critique 仍用此方式（6 个动态 prompt） |
 | `bash` | 执行 shell 命令 |
-| `lark_sync` / `lark_upload` | 飞书同步 |
+| `lark_sync` | 飞书同步（已统一为 skill，实际 action_type 为 `skill`） |
 | `done` / `paused` | 终止/暂停 |
 
 ### 模型选择

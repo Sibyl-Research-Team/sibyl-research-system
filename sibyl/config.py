@@ -41,7 +41,6 @@ class Config:
 
     # Lark sync
     lark_enabled: bool = True
-    lark_app_token: str = ""
 
     # Auto evolution
     evolution_enabled: bool = True
@@ -80,7 +79,7 @@ class Config:
             "ssh_server", "remote_base",
             "pilot_samples", "pilot_timeout",
             "debate_rounds", "writing_revision_rounds",
-            "lark_enabled", "lark_app_token", "evolution_enabled",
+            "lark_enabled", "evolution_enabled",
             "idea_exp_cycles",
         ]:
             if key in data:

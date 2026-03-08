@@ -64,7 +64,7 @@ class AgentTask:
 @dataclass
 class Action:
     """An action for the main Claude Code session to execute."""
-    action_type: str  # "skill", "skills_parallel", "agents_parallel", "agent_single", "team", "bash", "done", "lark_sync", "lark_upload", "paused"
+    action_type: str  # "skill", "skills_parallel", "agents_parallel", "agent_single", "team", "bash", "done", "paused"
     agents: list[dict] | None = None  # for legacy agent actions
     skills: list[dict] | None = None  # for fork skill actions: [{"name": "sibyl-xxx", "args": "..."}]
     team: dict | None = None  # for Agent Teams: {"prompt": "...", "teammates": [{"role": "...", "prompt": "..."}], "require_plan_approval": bool}
@@ -99,7 +99,6 @@ class FarsOrchestrator:
         "supervisor_review",
         "reflection",
         "lark_sync",
-        "lark_upload_pdf",
         "quality_gate",
         "done",
     ]
@@ -278,9 +277,6 @@ class FarsOrchestrator:
 
         elif stage == "lark_sync":
             return self._action_lark_sync(ws)
-
-        elif stage == "lark_upload_pdf":
-            return self._action_lark_upload_pdf(ws)
 
         elif stage == "quality_gate":
             return self._action_quality_gate()
@@ -489,34 +485,6 @@ class FarsOrchestrator:
             stage="writing_latex",
         )
 
-    def _action_lark_upload_pdf(self, ws: str) -> Action:
-        iteration = self.ws.get_status().iteration
-        return Action(
-            action_type="lark_upload",
-            description=(
-                f"上传 PDF 和研究文档到飞书云空间。\n"
-                f"飞书文件夹结构:\n"
-                f"  西比拉研究项目/\n"
-                f"    └── {self.ws.name}/\n"
-                f"        ├── 论文/\n"
-                f"        │   └── v{iteration}_main.pdf\n"
-                f"        ├── 实验报告/\n"
-                f"        │   ├── 先导实验报告.md\n"
-                f"        │   └── 完整实验报告.md\n"
-                f"        ├── 研究日记/\n"
-                f"        │   └── research_diary.md\n"
-                f"        └── 实验数据/\n"
-                f"            └── experiment_table\n\n"
-                f"操作步骤:\n"
-                f"1. 读取 {ws}/writing/latex/main.pdf\n"
-                f"2. 使用 mcp__lark__docx_builtin_import 上传研究日记\n"
-                f"3. 使用 mcp__lark__bitable_v1_appTableRecord_create 更新实验数据表\n"
-                f"4. 使用 mcp__lark__im_v1_message_create 通知团队:\n"
-                f"   「西比拉 [{self.ws.name}] 迭代 {iteration} 完成，PDF 已更新」"
-            ),
-            stage="lark_upload_pdf",
-        )
-
     def _action_critic_review(self, ws: str, common: str) -> Action:
         return Action(
             action_type="skill",
@@ -543,45 +511,10 @@ class FarsOrchestrator:
         )
 
     def _action_lark_sync(self, ws: str) -> Action:
-        iteration = self.ws.get_status().iteration
         return Action(
-            action_type="lark_sync",
-            description=f"""同步所有研究数据到飞书云空间。
-
-飞书文件夹: 西比拉研究项目/{self.ws.name}/
-
-## 1. 研究日记
-- 读取: {ws}/logs/research_diary.md
-- 导入为飞书文档: 研究过程/研究日记.md
-- 使用 mcp__lark__docx_builtin_import
-
-## 2. 迭代日志表格
-- 读取: {ws}/logs/iterations/master_log.jsonl
-- 创建/更新飞书多维表格: 迭代日志/
-- 字段: iteration, stage, timestamp, quality_score, issues_found 数量, notes
-- 使用 mcp__lark__bitable_v1_appTableRecord_create
-
-## 3. Reflection 报告
-- 读取: {ws}/reflection/reflection.md
-- 导入为飞书文档: 研究过程/反思报告_v{iteration}.md
-- 使用 mcp__lark__docx_builtin_import
-
-## 4. 实验数据表
-- 读取: {ws}/exp/experiment_db.jsonl
-- 创建/更新飞书多维表格: 实验数据/
-- 字段: experiment_id, method, metrics (JSON), status, is_pilot, seed
-- 使用 mcp__lark__bitable_v1_appTableRecord_create
-
-## 5. 系统进化记录
-- 读取: ~/.claude/sibyl_evolution/outcomes.jsonl
-- 读取: ~/.claude/sibyl_evolution/global_lessons.md (如有)
-- 导入为飞书文档: 系统进化/全局经验.md
-- 使用 mcp__lark__docx_builtin_import
-
-## 6. 团队通知
-- 使用 mcp__lark__im_v1_message_create
-- 格式: 「西比拉 [{self.ws.name}] 迭代 {iteration} 数据已同步 | 分数: X/10」
-""",
+            action_type="skill",
+            skills=[{"name": "sibyl-lark-sync", "args": ws}],
+            description="Sync research data to Feishu (docs, bitable, notifications)",
             stage="lark_sync",
         )
 
