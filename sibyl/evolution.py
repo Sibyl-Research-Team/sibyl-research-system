@@ -19,6 +19,7 @@ class IssueCategory(str, Enum):
     PLANNING = "planning"       # bad plan, scope, resource estimation
     PIPELINE = "pipeline"       # stage ordering, missing steps, orchestration
     IDEATION = "ideation"       # weak ideas, lack of novelty, poor motivation
+    EFFICIENCY = "efficiency"   # resource waste, GPU idle, slow iteration, scheduling
 
     @staticmethod
     def classify(description: str) -> "IssueCategory":
@@ -59,7 +60,16 @@ class IssueCategory(str, Enum):
             "idea", "novel", "originality", "motivation", "innovation",
             "incremental", "trivial", "contribution", "related work",
         ]
+        efficiency_keywords = [
+            "idle", "utilization", "waste", "underutiliz", "slow",
+            "throughput", "scheduling", "dispatch", "queue", "bottleneck",
+            "parallel", "batch size", "gpu idle", "waiting", "stall",
+            "iteration speed", "turnaround", "resource efficien",
+        ]
         # Check in specificity order (most specific first)
+        # Efficiency before system: "gpu idle" is efficiency, not system error
+        if any(kw in desc for kw in efficiency_keywords):
+            return IssueCategory.EFFICIENCY
         if any(kw in desc for kw in system_keywords):
             return IssueCategory.SYSTEM
         if any(kw in desc for kw in experiment_keywords):
@@ -87,6 +97,7 @@ CATEGORY_TO_AGENTS: dict[str, list[str]] = {
     "planning": ["planner", "synthesizer"],
     "pipeline": ["reflection"],
     "ideation": ["innovator", "pragmatist", "theoretical", "synthesizer"],
+    "efficiency": ["planner", "experimenter", "server_experimenter", "reflection"],
 }
 
 # Suggestion templates per category — much more specific than a generic "consider prompt enhancement"
@@ -98,6 +109,7 @@ CATEGORY_SUGGESTIONS: dict[str, str] = {
     "planning": "细化实验计划：明确资源需求、拆分子任务、预估 GPU 时间。",
     "pipeline": "优化流程：检查阶段顺序、减少冗余步骤。",
     "ideation": "提升想法质量：强调创新性、与 related work 区分、明确贡献。",
+    "efficiency": "优化资源利用：减少 GPU 空闲时间、合理安排任务并行度、优化 batch size、加速迭代周期。",
 }
 
 

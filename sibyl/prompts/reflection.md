@@ -30,6 +30,7 @@
 - **PLANNING**: 计划不周、资源估算不准、任务拆分不当
 - **PIPELINE**: 阶段顺序不当、缺少步骤、冗余操作
 - **IDEATION**: 创新性不足、贡献不明确
+- **EFFICIENCY**: GPU 空闲浪费、任务调度不合理、并行度不足、迭代周期过长
 
 ### 2. 修复追踪
 对比 `prev_action_plan.json`（上轮问题）和本轮发现的问题：
@@ -45,18 +46,29 @@
 ### 4. 改进计划
 为每个问题提供具体的、可操作的改进建议。
 
-### 5. 成功模式提取
+### 5. 资源效率分析
+分析本轮迭代中计算资源的利用情况，重点关注：
+- **GPU 利用率**：是否有 GPU 长时间空闲？任务间等待时间是否过长？
+- **任务并行度**：是否充分利用了多 GPU 并行调度？依赖关系是否阻塞了可并行的任务？
+- **Batch size 优化**：实验是否选用了接近显存上限的 batch size 以加速训练？
+- **迭代速度**：整轮迭代的总耗时是否合理？哪些阶段是瓶颈？
+- **调度改进建议**：是否可以通过调整任务拆分、合并小任务、提前启动无依赖任务等方式加速？
+
+读取 `{workspace}/exp/gpu_progress.json`（如存在）分析实际 GPU 使用时间和空闲间隔。
+
+### 6. 成功模式提取
 识别本轮迭代中做得好的方面（如：实验设计合理、baseline 对比充分、写作清晰），提炼为可复用的成功模式。
 
-### 6. 系统自检响应
+### 7. 系统自检响应
 如果 `logs/self_check_diagnostics.json` 存在，必须在反思报告中专门回应其中的诊断结果，并在改进计划中提出针对性措施。
 
 ## 输出文件
 
 ### `{workspace}/reflection/reflection.md`
-叙述性反思报告（中文），包括：
+叙述性反思报告，包括：
 - 本轮迭代总结
 - 各类问题分析
+- 资源效率评估（GPU 利用率、瓶颈分析、调度改进建议）
 - 质量趋势判断
 - 根因分析
 - 系统自检响应（如有诊断）
@@ -68,7 +80,7 @@
   "issues_classified": [
     {
       "description": "...",
-      "category": "system|experiment|writing|analysis|planning|pipeline|ideation",
+      "category": "system|experiment|writing|analysis|planning|pipeline|ideation|efficiency",
       "severity": "high|medium|low",
       "suggestion": "...",
       "status": "new|recurring|fixed"
@@ -78,6 +90,12 @@
   "success_patterns": ["做得好的具体方面，如：实验包含了完整的 ablation study"],
   "systemic_patterns": ["..."],
   "quality_trajectory": "improving|declining|stagnant",
+  "efficiency_analysis": {
+    "gpu_utilization_pct": 75,
+    "total_gpu_idle_minutes": 30,
+    "bottleneck_stages": ["experiment_cycle"],
+    "suggestions": ["合并小任务减少调度开销", "提前启动无依赖任务"]
+  },
   "recommended_focus": ["..."],
   "suggested_threshold_adjustment": 8.0,
   "suggested_max_iterations": 3
