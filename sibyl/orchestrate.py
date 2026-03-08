@@ -35,16 +35,40 @@ CHECKPOINT_DIRS = {
 }
 
 
-def load_prompt(agent_name: str, overlay_content: str | None = None) -> str:
+def load_prompt(
+    agent_name: str,
+    overlay_content: str | None = None,
+    language: str | None = None,
+) -> str:
     """Load an agent prompt from the prompts/ directory, with overlay injection.
 
-    If overlay_content is provided (e.g. from filter_relevant_lessons),
-    use it instead of the global overlay file.
+    Language resolution order:
+    1. Explicit `language` parameter
+    2. SIBYL_LANGUAGE environment variable (set by orchestrator)
+    3. Default "zh"
+
+    If language is "en", tries prompts/en/{agent}.md first, falls back to
+    prompts/{agent}.md. Writing-related prompts are always in English
+    (academic papers), so they only exist in the base directory.
     """
-    path = PROMPTS_DIR / f"{agent_name}.md"
-    if not path.exists():
-        return ""
-    base = path.read_text(encoding="utf-8")
+    import os
+    lang = language or os.environ.get("SIBYL_LANGUAGE", "zh")
+
+    # Try language-specific prompt first
+    if lang != "zh":
+        lang_path = PROMPTS_DIR / lang / f"{agent_name}.md"
+        if lang_path.exists():
+            base = lang_path.read_text(encoding="utf-8")
+        else:
+            path = PROMPTS_DIR / f"{agent_name}.md"
+            if not path.exists():
+                return ""
+            base = path.read_text(encoding="utf-8")
+    else:
+        path = PROMPTS_DIR / f"{agent_name}.md"
+        if not path.exists():
+            return ""
+        base = path.read_text(encoding="utf-8")
 
     if overlay_content is not None:
         if overlay_content.strip():
@@ -61,9 +85,50 @@ def load_prompt(agent_name: str, overlay_content: str | None = None) -> str:
     return base
 
 
-def load_common_prompt() -> str:
-    """Load the common instructions prompt."""
-    return load_prompt("_common")
+_LANG_BLOCK_ZH = """## 语言要求 (CRITICAL)
+
+**所有用户可见的输出必须使用中文**，包括但不限于：
+- 研究提案 (proposal.md)
+- 实验报告和结果分析
+- 研究日记和过程记录
+- 论文大纲和评审意见
+- 讨论和结论
+- 错误报告和建议
+
+以下可使用英文：
+- 代码和代码注释
+- JSON 数据结构的 key
+- 技术术语（首次出现时附中文解释）
+- 参考文献条目"""
+
+_LANG_BLOCK_EN = """## Language Requirement (CRITICAL)
+
+**All user-facing output MUST be written in English**, including but not limited to:
+- Research proposals (proposal.md)
+- Experiment reports and result analysis
+- Research diary and process records
+- Paper outlines and review comments
+- Discussions and conclusions
+- Error reports and suggestions
+
+The following should also use English:
+- Code and code comments
+- JSON data structure keys
+- Technical terms
+- References"""
+
+
+def load_common_prompt(language: str | None = None) -> str:
+    """Load the common instructions prompt with language-appropriate block."""
+    import os
+    lang = language or os.environ.get("SIBYL_LANGUAGE", "zh")
+    base = load_prompt("_common", language=lang)
+
+    # Replace language block based on config
+    if lang == "en" and _LANG_BLOCK_ZH in base:
+        base = base.replace(_LANG_BLOCK_ZH, _LANG_BLOCK_EN)
+
+    return base
 
 
 @dataclass
@@ -89,6 +154,7 @@ class Action:
     estimated_minutes: int = 0  # expected runtime hint for experiment batches
     checkpoint_info: dict | None = None  # {resuming, completed_steps, remaining_steps, all_complete}
     experiment_monitor: dict | None = None  # {script, marker_file, task_ids, timeout_minutes}
+    language: str = "zh"  # user-facing language for prompt loading
 
 
 class FarsOrchestrator:
@@ -207,7 +273,9 @@ class FarsOrchestrator:
                 agent["model_tier"] = tier
                 agent["model"] = model
 
-        return asdict(action)
+        result = asdict(action)
+        result["language"] = self.config.language
+        return result
 
     def record_result(self, stage: str, result: str = "",
                       score: float | None = None):

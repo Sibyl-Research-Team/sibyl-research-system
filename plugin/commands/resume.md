@@ -85,7 +85,11 @@ from sibyl.orchestrate import cli_list_projects  # 列出所有项目
 LOOP:
   1. 获取下一步:
      .venv/bin/python3 -c "from sibyl.orchestrate import cli_next; cli_next('WORKSPACE_PATH')"
-     -> 返回 JSON: {action_type, skills, team, agents, description, stage}
+     -> 返回 JSON: {action_type, skills, team, agents, description, stage, language}
+
+  1.5. 设置语言环境变量（每轮都要执行）:
+       export SIBYL_LANGUAGE=<action.language>  (默认 "zh")
+       这控制 agent prompt 的语言版本。
 
   2. 根据 action_type 执行:
 

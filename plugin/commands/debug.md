@@ -83,7 +83,9 @@ cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_next; 
   description: xxx
 ```
 
-4. **执行该 action**（同编排循环逻辑）：
+4. **设置语言环境变量**：`export SIBYL_LANGUAGE=<action.language>`
+
+5. **执行该 action**（同编排循环逻辑）：
 
    "skill": 使用 Skill 工具调用对应的 sibyl skill。
    "team": 使用 Agent Team 进行结构化多 agent 协作讨论。

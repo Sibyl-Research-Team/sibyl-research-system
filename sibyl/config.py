@@ -22,6 +22,9 @@ class Config:
     experiment_timeout: int = 300
     review_enabled: bool = True
 
+    # Language for user-facing prompts ("zh" or "en")
+    language: str = "zh"
+
     # GPU scheduling
     max_gpus: int = 4  # max GPUs to use (picks any free ones, not fixed IDs)
     gpus_per_task: int = 1
@@ -117,6 +120,7 @@ class Config:
             "codex_enabled", "codex_model", "writing_mode", "codex_writing_model",
             "experiment_mode", "server_codex_path", "server_claude_path",
             "remote_env_type", "remote_conda_path", "iteration_dirs",
+            "language",
         ]:
             if key in data:
                 setattr(cfg, key, data[key])
@@ -136,6 +140,13 @@ class Config:
             raise ValueError(
                 f"Invalid remote_env_type '{cfg.remote_env_type}', "
                 f"must be one of {valid_env_types}"
+            )
+
+        valid_languages = {"zh", "en"}
+        if cfg.language not in valid_languages:
+            raise ValueError(
+                f"Invalid language '{cfg.language}', "
+                f"must be one of {valid_languages}"
             )
 
         valid_writing_modes = {"sequential", "parallel", "codex"}
