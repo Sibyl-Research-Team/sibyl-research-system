@@ -107,6 +107,18 @@ All research outputs are stored in the shared workspace directory. Use Read and 
 - Log files (research_diary.md) are appended incrementally under project-level `logs/`, not cleared between iterations
 - When `iteration_dirs=False` (default), existing behavior is preserved with no iter subdirectories
 
+## Self-Evolution Safety (CRITICAL)
+
+When the system self-evolves and modifies Sibyl system files (code under `sibyl/`, prompts under `sibyl/prompts/`, configs, plugin commands, `.claude/` files), the following rules are **mandatory**:
+
+1. **Write tests**: Every modification to system code must have corresponding test cases in `tests/`. Tests must cover both the new behavior and backward compatibility.
+2. **Pass all tests**: Run `.venv/bin/python3 -m pytest tests/ -v` and ensure ALL tests pass before finalizing any system change. If tests fail, fix the issue — do not skip or delete tests.
+3. **Git commit**: After tests pass, commit changes via `git add <specific files> && git commit` with a descriptive message. Never use `git add -A` to avoid committing sensitive files.
+4. **Git push**: Push to GitHub immediately after commit to ensure traceability: `git push`.
+5. **No destructive changes**: Do not delete or overwrite existing prompt/config files without first verifying via tests that the change is safe. Use git to manage all system evolution history.
+
+These rules ensure system self-evolution is **reversible, traceable, and safe**. Git history serves as the audit trail for all system changes.
+
 ## Quality Standards
 
 - All outputs must be specific and actionable

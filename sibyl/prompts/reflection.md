@@ -118,6 +118,17 @@
 - ...
 ```
 
+### 8. 系统改进安全要求
+当改进建议涉及修改 Sibyl 系统文件（`sibyl/` 下的代码、`sibyl/prompts/` 下的 prompt、配置文件、plugin 命令）时，在 `action_plan.json` 的对应 issue 中必须标注 `"requires_system_change": true`。
+
+系统文件修改必须遵循以下流程：
+1. **编写测试**: 在 `tests/` 中为修改添加对应测试用例
+2. **通过测试**: 运行 `.venv/bin/python3 -m pytest tests/ -v` 确保全部通过
+3. **Git 提交**: 测试通过后通过 git commit 记录变更
+4. **Git 推送**: 提交后立即 push 到远程仓库
+
+**禁止**在测试未通过的情况下提交系统文件修改。这确保系统自进化是可逆、可追溯、安全的。
+
 ## Tool Usage
 - Use `Read` to read all pipeline outputs
 - Use `Glob` to discover available files
