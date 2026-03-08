@@ -1,10 +1,8 @@
 <p align="center">
   <img src="image/icon.jpg" width="200" alt="Sibyl Research System">
+  <h1 align="center">Sibyl Research System</h1>
+  <p align="center"><b>Fully Autonomous AI Research System with Self-Evolution</b></p>
 </p>
-
-# Sibyl Research System
-
-**Fully Autonomous AI Research System with Self-Evolution**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 

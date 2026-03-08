@@ -1,10 +1,8 @@
 <p align="center">
   <img src="image/icon.jpg" width="200" alt="Sibyl Research System">
+  <h1 align="center">Sibyl Research System（西比拉研究系统）</h1>
+  <p align="center"><b>全自主 AI 科研系统，具备自我进化能力</b></p>
 </p>
-
-# Sibyl Research System（西比拉研究系统）
-
-**全自主 AI 科研系统，具备自我进化能力**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
