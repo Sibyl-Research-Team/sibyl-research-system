@@ -2,7 +2,35 @@
 
 > Source of truth: `sibyl/config.py` — `Config` dataclass
 
-Each research project can have its own `config.yaml` in `workspaces/<project>/config.yaml`. Fields not specified use defaults.
+## Config Loading Order
+
+Sibyl loads configuration in layers, with later layers overriding earlier ones:
+
+1. **Code defaults** — Built-in defaults from `Config` dataclass (`language: "en"`, etc.)
+2. **Root `config.yaml`** — Optional file at the project root directory. Use this for machine-level defaults shared across all research projects (e.g., `language: zh`, `ssh_server`). This file is in `.gitignore` and not committed.
+3. **Project `config.yaml`** — Per-project overrides at `workspaces/<project>/config.yaml`. Settings here take priority over root config.
+
+```
+Code defaults  <--  config.yaml (root)  <--  workspaces/<project>/config.yaml
+```
+
+**Example root config** (for setting local defaults):
+
+```yaml
+# config.yaml (project root, git-ignored)
+language: zh
+ssh_server: my-gpu-box
+remote_base: /home/user/sibyl_system
+```
+
+**Example project config** (for project-specific overrides):
+
+```yaml
+# workspaces/my-project/config.yaml
+gpu_aggressive_mode: true
+iteration_dirs: true
+remote_conda_path: /home/user/miniforge3/bin/conda
+```
 
 ## Example
 

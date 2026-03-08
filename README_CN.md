@@ -228,14 +228,17 @@ claude --plugin-dir ./plugin
 
 ### 语言设置
 
-系统默认使用英文输出。如需切换为**中文模式**（Agent 输出、日志、中间产物、控制台消息全部使用中文），在项目配置中设置：
+系统默认使用英文输出。如需切换为**中文模式**（Agent 输出、日志、中间产物、控制台消息全部使用中文），可在以下位置配置：
 
 ```yaml
-# workspaces/<project>/config.yaml
+# 全局默认：config.yaml（项目根目录，不提交到 Git）
+language: zh
+
+# 或按项目配置：workspaces/<project>/config.yaml
 language: zh
 ```
 
-论文正文（paper.md、LaTeX）始终使用英文撰写，不受此设置影响。详见[配置参考](docs/configuration.md)。
+根目录 `config.yaml` 设置本机全局默认值，项目级 `config.yaml` 可覆盖。论文正文（paper.md、LaTeX）始终使用英文撰写，不受此设置影响。详见[配置参考](docs/configuration.md)。
 
 ## 文档
 
