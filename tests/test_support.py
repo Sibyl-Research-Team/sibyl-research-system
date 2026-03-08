@@ -70,6 +70,51 @@ lark_enabled: false
         c = Config.from_yaml(str(yaml_path))
         assert c.ssh_server == "cs8000d"  # all defaults
 
+    def test_remote_env_cmd_conda(self):
+        c = Config()
+        cmd = c.get_remote_env_cmd("myproj")
+        assert "conda" in cmd
+        assert "sibyl_myproj" in cmd
+        assert "miniconda3" in cmd
+
+    def test_remote_env_cmd_conda_custom_path(self):
+        c = Config(remote_conda_path="/opt/conda/bin/conda")
+        cmd = c.get_remote_env_cmd("myproj")
+        assert "/opt/conda/bin/conda" in cmd
+        assert "sibyl_myproj" in cmd
+
+    def test_remote_env_cmd_venv(self):
+        c = Config(remote_env_type="venv")
+        cmd = c.get_remote_env_cmd("myproj")
+        assert "source" in cmd
+        assert ".venv/bin/activate" in cmd
+        assert "myproj" in cmd
+
+    def test_new_config_fields_from_yaml(self, tmp_path):
+        yaml_content = """
+remote_env_type: venv
+remote_conda_path: /custom/conda
+iteration_dirs: true
+"""
+        yaml_path = tmp_path / "config.yaml"
+        yaml_path.write_text(yaml_content, encoding="utf-8")
+        c = Config.from_yaml(str(yaml_path))
+        assert c.remote_env_type == "venv"
+        assert c.remote_conda_path == "/custom/conda"
+        assert c.iteration_dirs is True
+
+    def test_invalid_remote_env_type(self, tmp_path):
+        yaml_path = tmp_path / "bad.yaml"
+        yaml_path.write_text("remote_env_type: invalid", encoding="utf-8")
+        with pytest.raises(ValueError, match="remote_env_type"):
+            Config.from_yaml(str(yaml_path))
+
+    def test_config_defaults_new_fields(self):
+        c = Config()
+        assert c.remote_env_type == "conda"
+        assert c.remote_conda_path == ""
+        assert c.iteration_dirs is False
+
 
 # ══════════════════════════════════════════════
 # ContextBuilder

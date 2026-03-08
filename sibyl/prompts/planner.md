@@ -49,6 +49,19 @@ For EACH experiment task, also design a PILOT version:
 - `multi_gpu_strategy`: 建议的多卡策略（experimenter 参考执行）
 - `max_batch_size_hint`: 设为 `"auto-detect"` 表示实验前先做显存探测自动确定最大 batch size
 
+## 迭代与共享资源
+
+- 规划时检查 `{workspace}/shared/experiment_db.jsonl` 了解历史实验结果，避免重复工作
+- 复用已有数据集路径（查看 `{remote_base}/shared/registry.json`），不重复下载
+- 在 task_plan.json 中标注需要的共享资源（`shared_resources` 字段）：
+  ```json
+  {"shared_resources": [
+    {"type": "dataset", "name": "glue/sst2", "path": "shared/datasets/glue_sst2"},
+    {"type": "checkpoint", "name": "bert-base", "path": "shared/checkpoints/bert-base"}
+  ]}
+  ```
+- 如前一迭代已有可复用的中间结果，在 task 的 `depends_on` 中引用
+
 ## Output
 - `{workspace}/plan/methodology.md`: Detailed methodology (setup, baselines, metrics, evaluation benchmarks)
 - `{workspace}/plan/task_plan.json`: Structured task list:

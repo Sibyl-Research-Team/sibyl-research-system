@@ -64,6 +64,11 @@ class Config:
     server_codex_path: str = "codex"  # Codex CLI path on server
     server_claude_path: str = "claude"  # Claude CLI path on server
 
+    # Remote environment
+    remote_env_type: str = "conda"       # "conda" | "venv"
+    remote_conda_path: str = ""          # empty = auto {remote_base}/miniconda3/bin/conda
+    iteration_dirs: bool = False         # True = iteration subdirectory mode
+
     # Lark sync
     lark_enabled: bool = True
 
@@ -111,6 +116,7 @@ class Config:
             "idea_exp_cycles",
             "codex_enabled", "codex_model", "writing_mode", "codex_writing_model",
             "experiment_mode", "server_codex_path", "server_claude_path",
+            "remote_env_type", "remote_conda_path", "iteration_dirs",
         ]:
             if key in data:
                 setattr(cfg, key, data[key])
@@ -124,6 +130,14 @@ class Config:
                 getattr(cfg, key).update(data[key])
 
         # Validate enum-like fields
+        # Validate remote_env_type
+        valid_env_types = {"conda", "venv"}
+        if cfg.remote_env_type not in valid_env_types:
+            raise ValueError(
+                f"Invalid remote_env_type '{cfg.remote_env_type}', "
+                f"must be one of {valid_env_types}"
+            )
+
         valid_writing_modes = {"sequential", "parallel", "codex"}
         if cfg.writing_mode not in valid_writing_modes:
             raise ValueError(
@@ -138,3 +152,10 @@ class Config:
             )
 
         return cfg
+
+    def get_remote_env_cmd(self, project_name: str) -> str:
+        """Return the environment activation command for remote execution."""
+        if self.remote_env_type == "venv":
+            return f"source {self.remote_base}/projects/{project_name}/.venv/bin/activate &&"
+        conda = self.remote_conda_path or f"{self.remote_base}/miniconda3/bin/conda"
+        return f"{conda} run --no-banner -n sibyl_{project_name}"

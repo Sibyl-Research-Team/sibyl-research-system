@@ -1309,7 +1309,10 @@ class FarsOrchestrator:
                     self.ws.archive_iteration(iteration)
                 except OSError as e:
                     self.ws.add_error(f"Archive failed for iteration {iteration}: {e}")
-                self._clear_iteration_artifacts()
+                if self.ws.get_status().iteration_dirs:
+                    self.ws.start_new_iteration(iteration + 1)
+                else:
+                    self._clear_iteration_artifacts()
                 return ("literature_search", iteration + 1)
 
         try:
@@ -1656,7 +1659,11 @@ def cli_migrate_server(project_name: str, ssh_connection: str = "default"):
     # The migration plan: move flat files into project-specific directory
     commands = [
         f"# === 服务器端 v5 迁移: {project_name} ===",
-        f"mkdir -p {project_dir}/{{idea,plan,exp/code,exp/results/pilots,exp/results/full,exp/logs,writing/latex,writing/sections,writing/figures,supervisor,critic,reflection,logs/iterations,lark_sync}}",
+        f"mkdir -p {project_dir}/{{idea,plan,exp/code,exp/results/pilots,exp/results/full,exp/logs,writing/latex,writing/sections,writing/figures,supervisor,critic,reflection,logs/iterations,lark_sync,shared}}",
+        "",
+        "# 创建共享资源目录",
+        f"mkdir -p {remote_base}/shared/{{datasets,checkpoints}}",
+        f'test -f {remote_base}/shared/registry.json || echo \'{{}}\' > {remote_base}/shared/registry.json',
         "",
         "# 迁移实验代码",
         f"cp -r {remote_base}/exp/code/* {project_dir}/exp/code/ 2>/dev/null || true",

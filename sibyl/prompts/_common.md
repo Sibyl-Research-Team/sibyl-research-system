@@ -82,6 +82,23 @@
 - 保证单 GPU 可运行
 - 设置随机种子确保可重现
 
+## 远程服务器规范
+
+- 所有远程文件必须在 `{remote_base}/` 内
+- 项目文件限定在 `{remote_base}/projects/{project}/`
+- 共享数据集/预训练权重放 `{remote_base}/shared/`，先查 `{remote_base}/shared/registry.json` 再下载
+- 环境使用 `{env_cmd}`（由项目配置决定，conda 或 venv）
+- 禁止访问其他项目的目录
+
+## 迭代管理规范
+
+- 当 `iteration_dirs=True` 时，每轮迭代的产出在 `iter_NNN/` 子目录中
+- `current/` symlink 指向活跃迭代，所有路径引用通过 `current/` 访问
+- `shared/` 目录存放跨迭代共用文件（literature.md, references.json, experiment_db.jsonl）
+- 禁止修改历史迭代目录（`iter_001/` 等）的文件
+- 日志文件（research_diary.md）在项目级 `logs/` 下增量追加，不随迭代清理
+- 当 `iteration_dirs=False` 时（默认），保持现有行为，无 iter 子目录
+
 ## 质量标准
 
 - 所有输出必须具体且可操作

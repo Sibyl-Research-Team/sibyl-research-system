@@ -11,6 +11,15 @@
 | 结果解析 + 分析 + 可视化 | 主系统本地 | 主系统需要丰富细节做决策 |
 | 环境搭建 + 依赖安装 | 服务器本地 | 一次性操作 |
 
+## 远程文件隔离规则 (CRITICAL)
+
+1. 所有实验文件必须放在 `{remote_base}/projects/{project}/` 内
+2. 环境激活使用 `{env_cmd}`（由项目配置生成，支持 conda/venv）
+3. 共享资源检查：先查 `{remote_base}/shared/registry.json`，有则 symlink，无则下载后注册
+4. 禁止访问其他项目目录
+5. 所有操作前先 `cd {remote_base}/projects/{project}`
+6. 生成的 `experiment_prompt.md` 中必须包含上述文件隔离指令
+
 ## 执行流程（3 阶段）
 
 ### 阶段 A：准备（主系统 → 服务器）
@@ -40,7 +49,7 @@
 **server_codex 模式：**
 ```bash
 cd {remote_base}/projects/{project} && \
-CUDA_VISIBLE_DEVICES={gpus} codex --model o3 --quiet \
+{env_cmd} CUDA_VISIBLE_DEVICES={gpus} codex --model o3 --quiet \
 --prompt-file experiment_prompt.md 2>&1 | tee experiment_log.txt && \
 echo "EXPERIMENT_DONE"
 ```
@@ -48,7 +57,7 @@ echo "EXPERIMENT_DONE"
 **server_claude 模式：**
 ```bash
 cd {remote_base}/projects/{project} && \
-CUDA_VISIBLE_DEVICES={gpus} claude --model opus --print \
+{env_cmd} CUDA_VISIBLE_DEVICES={gpus} claude --model opus --print \
 --prompt-file experiment_prompt.md 2>&1 | tee experiment_log.txt && \
 echo "EXPERIMENT_DONE"
 ```

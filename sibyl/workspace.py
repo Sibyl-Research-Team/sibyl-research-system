@@ -17,6 +17,7 @@ class WorkspaceStatus:
     errors: list[dict] = field(default_factory=list)
     paused_at: float = 0.0  # 0 = not paused, >0 = pause timestamp
     resume_after_sync: str = ""  # stage to resume after mid-pipeline lark_sync
+    iteration_dirs: bool = False  # True = iteration subdirectory mode
 
 
 class Workspace:
@@ -67,29 +68,89 @@ class Workspace:
         └── lark_sync/
     """
 
-    def __init__(self, base_dir: Path, project_name: str):
+    # Standard subdirectories for a workspace or iteration
+    _STANDARD_DIRS = [
+        "environment",
+        "idea", "idea/perspectives", "idea/debate", "idea/result_debate",
+        "plan",
+        "exp/code", "exp/results/pilots", "exp/results/full", "exp/logs",
+        "writing/sections", "writing/critique", "writing/figures", "writing/latex",
+        "context", "codex",
+        "supervisor", "critic", "reflection",
+        "logs/iterations",
+        "lark_sync",
+    ]
+
+    def __init__(self, base_dir: Path, project_name: str,
+                 iteration_dirs: bool = False):
         self.root = base_dir / project_name
         self.name = project_name
+        self._init_iteration_dirs = iteration_dirs
         self._init_dirs()
 
     def _init_dirs(self):
-        dirs = [
-            "environment",
-            "idea", "idea/perspectives", "idea/debate", "idea/result_debate",
-            "plan",
-            "exp/code", "exp/results/pilots", "exp/results/full", "exp/logs",
-            "writing/sections", "writing/critique", "writing/figures", "writing/latex",
-            "context", "codex",
-            "supervisor", "critic", "reflection",
-            "logs/iterations",
-            "lark_sync",
-        ]
-        for d in dirs:
-            (self.root / d).mkdir(parents=True, exist_ok=True)
+        # Always create shared/ directory
+        (self.root / "shared").mkdir(parents=True, exist_ok=True)
+
+        if self._init_iteration_dirs:
+            # Create iter_001/ with standard dirs, plus current symlink
+            iter_dir = self.root / "iter_001"
+            for d in self._STANDARD_DIRS:
+                (iter_dir / d).mkdir(parents=True, exist_ok=True)
+            # Create or update current symlink
+            current_link = self.root / "current"
+            if current_link.is_symlink():
+                current_link.unlink()
+            elif current_link.exists():
+                shutil.rmtree(current_link)
+            current_link.symlink_to("iter_001")
+            # Project-level logs dir (not per-iteration)
+            (self.root / "logs" / "iterations").mkdir(parents=True, exist_ok=True)
+        else:
+            for d in self._STANDARD_DIRS:
+                (self.root / d).mkdir(parents=True, exist_ok=True)
+
         # init status
         status_path = self.root / "status.json"
         if not status_path.exists():
-            self._save_status(WorkspaceStatus(started_at=time.time()))
+            status = WorkspaceStatus(
+                started_at=time.time(),
+                iteration_dirs=self._init_iteration_dirs,
+            )
+            self._save_status(status)
+
+    def start_new_iteration(self, iteration: int):
+        """Create a new iteration directory and update current symlink.
+
+        Copies shared files from shared/ and lessons from previous iteration.
+        """
+        iter_name = f"iter_{iteration:03d}"
+        iter_dir = self.root / iter_name
+        for d in self._STANDARD_DIRS:
+            (iter_dir / d).mkdir(parents=True, exist_ok=True)
+
+        # Update current symlink
+        current_link = self.root / "current"
+        if current_link.is_symlink():
+            current_link.unlink()
+        elif current_link.exists():
+            shutil.rmtree(current_link)
+        current_link.symlink_to(iter_name)
+
+        # Copy shared files into new iteration
+        shared_files = ["literature.md", "references.json"]
+        for fname in shared_files:
+            src = self.root / "shared" / fname
+            if src.exists():
+                dst = iter_dir / "context" / fname
+                shutil.copy2(src, dst)
+
+        # Copy lessons_learned.md from previous iteration
+        prev_name = f"iter_{iteration - 1:03d}"
+        prev_lessons = self.root / prev_name / "reflection" / "lessons_learned.md"
+        if prev_lessons.exists():
+            dst = iter_dir / "reflection" / "lessons_learned.md"
+            shutil.copy2(prev_lessons, dst)
 
     def _save_status(self, status: WorkspaceStatus):
         status.updated_at = time.time()
@@ -204,15 +265,36 @@ class Workspace:
 
     def archive_iteration(self, iteration: int):
         """Archive current iteration artifacts before starting a new one."""
-        archive_dir = self.root / "logs" / "iterations" / f"iter_{iteration:03d}"
-        archive_dir.mkdir(parents=True, exist_ok=True)
-        for subdir in ["idea", "plan", "exp/results", "writing", "supervisor", "critic"]:
-            src = self.root / subdir
-            if src.exists():
-                dst = archive_dir / subdir.replace("/", "_")
-                if dst.exists():
-                    shutil.rmtree(dst)
-                shutil.copytree(src, dst, dirs_exist_ok=True)
+        status = self.get_status()
+        if status.iteration_dirs:
+            # In iteration_dirs mode, data already lives in iter_NNN/.
+            # Sync shared files (literature, references) back to shared/.
+            iter_dir = self.root / f"iter_{iteration:03d}"
+            for fname in ["literature.md", "references.json"]:
+                src = iter_dir / "context" / fname
+                if src.exists():
+                    dst = self.root / "shared" / fname
+                    shutil.copy2(src, dst)
+            # Sync experiment_db.jsonl to shared/
+            exp_db = iter_dir / "exp" / "experiment_db.jsonl"
+            if exp_db.exists():
+                shared_db = self.root / "shared" / "experiment_db.jsonl"
+                # Append new entries rather than overwrite
+                with open(exp_db, encoding="utf-8") as f:
+                    new_data = f.read()
+                with open(shared_db, "a", encoding="utf-8") as f:
+                    f.write(new_data)
+        else:
+            # Classic mode: copy artifacts to logs/iterations/
+            archive_dir = self.root / "logs" / "iterations" / f"iter_{iteration:03d}"
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            for subdir in ["idea", "plan", "exp/results", "writing", "supervisor", "critic"]:
+                src = self.root / subdir
+                if src.exists():
+                    dst = archive_dir / subdir.replace("/", "_")
+                    if dst.exists():
+                        shutil.rmtree(dst)
+                    shutil.copytree(src, dst, dirs_exist_ok=True)
 
     # ══════════════════════════════════════════════
     # Git version management

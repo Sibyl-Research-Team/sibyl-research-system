@@ -32,13 +32,23 @@ Read from workspace:
 Use `mcp__ssh-mcp-server__execute-command` to run on the remote server:
 - Server: `cs8000d`
 - Set `CUDA_VISIBLE_DEVICES={gpu_id}`
-- Use conda environment: `conda run -n sibyl_{project}`
+- 环境激活: `{env_cmd}`（由项目配置生成，支持 conda/venv）
 - Upload scripts first, then execute
+- 工作目录: `cd {remote_base}/projects/{project}` 作为所有操作的前置
 
 Alternatively, use `Bash` with SSH:
 ```bash
-ssh cs8000d "CUDA_VISIBLE_DEVICES={gpu_id} conda run -n sibyl_{project} python /path/to/script.py"
+ssh cs8000d "cd {remote_base}/projects/{project} && CUDA_VISIBLE_DEVICES={gpu_id} {env_cmd} python script.py"
 ```
+
+## 远程文件隔离规则 (CRITICAL)
+
+1. 所有实验文件（代码、日志、结果）必须放在 `{remote_base}/projects/{project}/` 内
+2. 环境激活使用项目配置的 `{env_cmd}`（不要硬编码 conda 命令）
+3. 共享资源检查流程：先查 `{remote_base}/shared/registry.json`，有则创建 symlink，无则下载后注册
+4. 禁止访问其他项目的目录（`{remote_base}/projects/other_project/`）
+5. 所有操作前先 `cd {remote_base}/projects/{project}`
+6. 下载的数据集如需共享，放入 `{remote_base}/shared/datasets/` 并更新 registry.json
 
 ## Code Requirements
 - Self-contained, runnable scripts

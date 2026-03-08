@@ -220,6 +220,72 @@ class TestWorkspaceGit:
         tmp_ws.git_commit("should be noop")  # no staged changes
 
 
+class TestIterationDirs:
+    def test_iteration_dirs_init(self, tmp_path):
+        ws = Workspace(tmp_path, "iter-proj", iteration_dirs=True)
+        assert (ws.root / "iter_001").is_dir()
+        assert (ws.root / "current").is_symlink()
+        assert (ws.root / "current").resolve() == (ws.root / "iter_001").resolve()
+        assert (ws.root / "shared").is_dir()
+        # Standard dirs should be inside iter_001
+        assert (ws.root / "iter_001" / "idea").is_dir()
+        assert (ws.root / "iter_001" / "exp" / "code").is_dir()
+        # Status should record iteration_dirs=True
+        status = ws.get_status()
+        assert status.iteration_dirs is True
+
+    def test_start_new_iteration(self, tmp_path):
+        ws = Workspace(tmp_path, "iter-proj", iteration_dirs=True)
+        # Put shared files
+        (ws.root / "shared" / "literature.md").write_text("lit content", encoding="utf-8")
+        (ws.root / "shared" / "references.json").write_text("[]", encoding="utf-8")
+        # Put lessons in iter_001
+        (ws.root / "iter_001" / "reflection" / "lessons_learned.md").write_text(
+            "lesson 1", encoding="utf-8"
+        )
+        ws.start_new_iteration(2)
+        # iter_002 should exist
+        assert (ws.root / "iter_002").is_dir()
+        assert (ws.root / "iter_002" / "idea").is_dir()
+        # current should point to iter_002
+        assert (ws.root / "current").resolve() == (ws.root / "iter_002").resolve()
+        # Shared files should be copied
+        assert (ws.root / "iter_002" / "context" / "literature.md").read_text(encoding="utf-8") == "lit content"
+        assert (ws.root / "iter_002" / "context" / "references.json").read_text(encoding="utf-8") == "[]"
+        # Lessons should be copied from prev iteration
+        assert (ws.root / "iter_002" / "reflection" / "lessons_learned.md").read_text(encoding="utf-8") == "lesson 1"
+
+    def test_archive_iteration_dirs_mode(self, tmp_path):
+        ws = Workspace(tmp_path, "iter-proj", iteration_dirs=True)
+        # Set iteration_dirs in status
+        status = ws.get_status()
+        status.iteration_dirs = True
+        ws._save_status(status)
+        # Create some context files in iter_001
+        (ws.root / "iter_001" / "context" / "literature.md").write_text("updated lit", encoding="utf-8")
+        ws.archive_iteration(1)
+        # In iteration_dirs mode, shared files should be synced back
+        assert (ws.root / "shared" / "literature.md").read_text(encoding="utf-8") == "updated lit"
+        # No copytree to logs/iterations/ in iteration_dirs mode
+        assert not (ws.root / "logs" / "iterations" / "iter_001" / "idea").exists()
+
+    def test_backward_compat(self, tmp_path):
+        """iteration_dirs=False should behave exactly like before."""
+        ws = Workspace(tmp_path, "classic-proj")
+        # Standard dirs at root level
+        assert (ws.root / "idea").is_dir()
+        assert not (ws.root / "iter_001").exists()
+        assert not (ws.root / "current").exists()
+        # shared/ is always created
+        assert (ws.root / "shared").is_dir()
+        # Status should have iteration_dirs=False
+        assert ws.get_status().iteration_dirs is False
+        # Archive should use classic copytree
+        ws.write_file("idea/proposal.md", "proposal")
+        ws.archive_iteration(1)
+        assert (ws.root / "logs" / "iterations" / "iter_001" / "idea" / "proposal.md").exists()
+
+
 class TestProjectMetadata:
     def test_metadata_fields(self, tmp_ws):
         tmp_ws.update_stage("planning")
