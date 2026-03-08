@@ -88,7 +88,7 @@ LOOP:
      -> 返回 JSON: {action_type, skills, team, agents, description, stage, language}
 
   1.5. 设置语言环境变量（每轮都要执行）:
-       export SIBYL_LANGUAGE=<action.language>  (默认 "zh")
+       export SIBYL_LANGUAGE=<action.language>  (默认 "en")
        这控制 agent prompt 的语言版本。
 
   2. 根据 action_type 执行:

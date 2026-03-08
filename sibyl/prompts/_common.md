@@ -1,108 +1,108 @@
-# Sibyl Agent 通用指令
+# Sibyl Agent Common Instructions
 
-## 语言要求 (CRITICAL)
+## Language Requirement (CRITICAL)
 
-**所有用户可见的输出必须使用中文**，包括但不限于：
-- 研究提案 (proposal.md)
-- 实验报告和结果分析
-- 研究日记和过程记录
-- 论文大纲和评审意见
-- 讨论和结论
-- 错误报告和建议
+**All user-facing output MUST be written in English**, including but not limited to:
+- Research proposals (proposal.md)
+- Experiment reports and result analysis
+- Research diary and process records
+- Paper outlines and review comments
+- Discussions and conclusions
+- Error reports and suggestions
 
-以下可使用英文：
-- 代码和代码注释
-- JSON 数据结构的 key
-- 技术术语（首次出现时附中文解释）
-- 参考文献条目
+The following should also use English:
+- Code and code comments
+- JSON data structure keys
+- Technical terms
+- References
 
-## 工作区规范
+## Workspace Conventions
 
-所有研究产出存放在共享工作区目录中。使用 Read 和 Write 工具操作文件。
+All research outputs are stored in the shared workspace directory. Use Read and Write tools to operate on files.
 
-### 目录结构
+### Directory Structure
 ```
 <workspace>/
-├── spec.md                  # 项目规格说明（用户编写）
-├── topic.txt                # 研究主题
-├── status.json              # 项目状态（编排器管理）
+├── spec.md                  # Project specification (user-written)
+├── topic.txt                # Research topic
+├── status.json              # Project status (managed by orchestrator)
 ├── idea/
-│   ├── proposal.md          # 最终综合提案
-│   ├── alternatives.md      # 备选方案（用于 pivot）
+│   ├── proposal.md          # Final synthesized proposal
+│   ├── alternatives.md      # Alternative plans (for pivot)
 │   ├── references.json      # [{title, authors, abstract, url, year}]
-│   ├── hypotheses.md        # 可检验假设
-│   ├── initial_ideas.md     # 用户初始想法
-│   ├── references_seed.md   # 用户提供的参考文献
-│   ├── perspectives/        # 各 agent 独立想法
-│   ├── debate/              # 交叉批评记录
-│   └── result_debate/       # 实验后讨论
+│   ├── hypotheses.md        # Testable hypotheses
+│   ├── initial_ideas.md     # User's initial ideas
+│   ├── references_seed.md   # User-provided references
+│   ├── perspectives/        # Individual agent ideas
+│   ├── debate/              # Cross-critique records
+│   └── result_debate/       # Post-experiment discussion
 ├── plan/
-│   ├── methodology.md       # 详细方法论
-│   ├── task_plan.json       # 结构化任务列表
-│   └── pilot_plan.json      # 先导实验详情
+│   ├── methodology.md       # Detailed methodology
+│   ├── task_plan.json       # Structured task list
+│   └── pilot_plan.json      # Pilot experiment details
 ├── exp/
-│   ├── code/                # 实验脚本
+│   ├── code/                # Experiment scripts
 │   ├── results/
-│   │   ├── pilots/          # 先导实验结果
-│   │   └── full/            # 完整实验结果
-│   ├── logs/                # 执行日志
-│   └── experiment_db.jsonl  # 实验数据库
+│   │   ├── pilots/          # Pilot experiment results
+│   │   └── full/            # Full experiment results
+│   ├── logs/                # Execution logs
+│   └── experiment_db.jsonl  # Experiment database
 ├── writing/
-│   ├── outline.md           # 论文大纲
-│   ├── sections/            # 各节内容
-│   ├── critique/            # 各节评审
-│   ├── paper.md             # 完整论文（中文草稿）
-│   ├── review.md            # 终审报告
-│   ├── figures/             # 图表
-│   └── latex/               # LaTeX 源文件（NeurIPS 格式）
+│   ├── outline.md           # Paper outline
+│   ├── sections/            # Section content
+│   ├── critique/            # Section reviews
+│   ├── paper.md             # Complete paper draft
+│   ├── review.md            # Final review report
+│   ├── figures/             # Figures and charts
+│   └── latex/               # LaTeX source files (NeurIPS format)
 │       ├── main.tex
 │       ├── references.bib
 │       └── main.pdf
 ├── context/
-│   └── literature.md        # 文献调研报告（arXiv + Web，自动生成）
-├── supervisor/              # 监督审查
-├── critic/                  # 批评反馈
-├── reflection/              # 反思产出
-├── codex/                  # Codex 独立审查结果
-├── logs/                    # 流水线日志
+│   └── literature.md        # Literature survey report (arXiv + Web, auto-generated)
+├── supervisor/              # Supervision review
+├── critic/                  # Critique feedback
+├── reflection/              # Reflection outputs
+├── codex/                   # Codex independent review results
+├── logs/                    # Pipeline logs
 │   ├── iterations/
-│   └── research_diary.md    # 研究日记（中文）
-└── lark_sync/               # 飞书同步数据
+│   └── research_diary.md    # Research diary
+└── lark_sync/               # Feishu/Lark sync data
 ```
 
-## 文件读写
+## File Operations
 
-- **读取文件**: 使用 `Read` 工具，绝对路径: `<workspace>/<相对路径>`
-- **写入文件**: 使用 `Write` 工具，绝对路径
-- **查找文件**: 使用 `Glob` 工具
+- **Read files**: Use `Read` tool with absolute path: `<workspace>/<relative_path>`
+- **Write files**: Use `Write` tool with absolute path
+- **Find files**: Use `Glob` tool
 
-## 模型选用
+## Model Selection
 
-- 实验用小模型: GPT-2, BERT-base, Qwen/Qwen2-0.5B
-- 保证单 GPU 可运行
-- 设置随机种子确保可重现
+- Use small models for experiments: GPT-2, BERT-base, Qwen/Qwen2-0.5B
+- Ensure single-GPU compatibility
+- Set random seeds for reproducibility
 
-## 远程服务器规范
+## Remote Server Conventions
 
-- 所有远程文件必须在 `{remote_base}/` 内
-- 项目文件限定在 `{remote_base}/projects/{project}/`
-- 共享数据集/预训练权重放 `{remote_base}/shared/`，先查 `{remote_base}/shared/registry.json` 再下载
-- 环境使用 `{env_cmd}`（由项目配置决定，conda 或 venv）
-- 禁止访问其他项目的目录
+- All remote files must reside within `{remote_base}/`
+- Project files are restricted to `{remote_base}/projects/{project}/`
+- Shared datasets/pretrained weights go in `{remote_base}/shared/`; check `{remote_base}/shared/registry.json` before downloading
+- Use `{env_cmd}` for environment activation (conda or venv, per project config)
+- Do not access other projects' directories
 
-## 迭代管理规范
+## Iteration Management
 
-- 当 `iteration_dirs=True` 时，每轮迭代的产出在 `iter_NNN/` 子目录中
-- `current/` symlink 指向活跃迭代，所有路径引用通过 `current/` 访问
-- `shared/` 目录存放跨迭代共用文件（literature.md, references.json, experiment_db.jsonl）
-- 禁止修改历史迭代目录（`iter_001/` 等）的文件
-- 日志文件（research_diary.md）在项目级 `logs/` 下增量追加，不随迭代清理
-- 当 `iteration_dirs=False` 时（默认），保持现有行为，无 iter 子目录
+- When `iteration_dirs=True`, each iteration's outputs are in `iter_NNN/` subdirectories
+- `current/` symlink points to the active iteration; all path references go through `current/`
+- `shared/` directory stores cross-iteration shared files (literature.md, references.json, experiment_db.jsonl)
+- Do not modify files in historical iteration directories (`iter_001/`, etc.)
+- Log files (research_diary.md) are appended incrementally under project-level `logs/`, not cleared between iterations
+- When `iteration_dirs=False` (default), existing behavior is preserved with no iter subdirectories
 
-## 质量标准
+## Quality Standards
 
-- 所有输出必须具体且可操作
-- 每项声明必须有证据支持
-- 标记可疑结果（简单方法 >30% 提升）
-- 保存样本输出，不仅仅是统计量
-- 诚实报告负面结果
+- All outputs must be specific and actionable
+- Every claim must be evidence-backed
+- Flag suspicious results (>30% improvement over simple baselines)
+- Save sample outputs, not just statistics
+- Honestly report negative results

@@ -27,6 +27,9 @@ experiment_mode: ssh_mcp
 # Codex independent review
 codex_enabled: true
 
+# Language for agent output: "en" (default) or "zh"
+language: en
+
 # Feishu/Lark sync
 lark_enabled: true
 

@@ -22,8 +22,8 @@ class Config:
     experiment_timeout: int = 300
     review_enabled: bool = True
 
-    # Language for user-facing prompts ("zh" or "en")
-    language: str = "zh"
+    # Language for user-facing agent output ("en" or "zh")
+    language: str = "en"
 
     # GPU scheduling
     max_gpus: int = 4  # max GPUs to use (picks any free ones, not fixed IDs)
