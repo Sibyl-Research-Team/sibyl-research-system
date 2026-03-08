@@ -18,51 +18,39 @@ Sibyl 通过 **状态机编排器** 协调 20+ 个 AI Agent，自动完成文献
 ## 工作流程
 
 ```mermaid
-graph TD
-    subgraph iteration["🔄 研究迭代循环"]
+graph LR
+    subgraph iteration["🔄 研究迭代"]
         direction TB
-
-        lit["📚 文献调研<br/><i>arXiv + Web 双源搜索</i>"]
-        idea["💡 创意辩论<br/><i>6 Agent 多视角辩论</i>"]
-        plan["📋 实验规划<br/><i>生成 task_plan.json</i>"]
-        pilot["🧪 试点实验<br/><i>小规模可行性验证</i>"]
-        exp["⚡ 正式实验<br/><i>GPU 并行调度执行</i>"]
-        result["📊 结果辩论<br/><i>6 Agent 多视角分析</i>"]
-        decision{"🔀 实验决策"}
-
-        lit --> idea --> plan --> pilot --> exp --> result --> decision
-        decision -- "PIVOT<br/>换方向" --> idea
+        lit["📚 文献调研"] --> idea["💡 创意辩论<br/><sub>6 Agent</sub>"]
+        idea --> plan["📋 实验规划"]
+        plan --> pilot["🧪 试点实验"]
+        pilot --> exp["⚡ 正式实验<br/><sub>GPU 并行</sub>"]
+        exp --> result["📊 结果辩论<br/><sub>6 Agent</sub>"]
+        result --> decision{"实验决策"}
+        decision -- "PIVOT" --> idea
     end
 
     subgraph writing["✍️ 论文撰写"]
         direction TB
-
-        outline["📝 大纲撰写"]
-        sections["✏️ 章节写作<br/><i>顺序 / 并行 / Codex</i>"]
-        critique["🔍 章节评审<br/><i>6 Agent 交叉评审</i>"]
-        integrate["📖 整合编辑"]
-        final{"📋 终审<br/><i>NeurIPS 级别</i>"}
-        latex["📄 LaTeX 排版<br/><i>编译 PDF</i>"]
-
-        outline --> sections --> critique --> integrate --> final
-        final -- "不达标<br/>≤2轮" --> integrate
-        final -- "达标" --> latex
+        outline["📝 大纲"] --> sections["✏️ 章节写作"]
+        sections --> critique["🔍 交叉评审<br/><sub>6 Agent</sub>"]
+        critique --> integrate["📖 整合编辑"]
+        integrate --> final{"终审"}
+        final -- "不达标" --> integrate
+        final -- "达标" --> latex["📄 LaTeX"]
     end
 
-    subgraph review["🔬 审稿与反思"]
+    subgraph review["🔬 审稿反思"]
         direction TB
-
-        rev["👥 综合审稿<br/><i>Critic + Supervisor + Codex</i>"]
-        reflect["💭 反思总结<br/><i>分类问题 · 记录教训</i>"]
-        lark["☁️ 飞书同步"]
-        gate{"⭐ 质量门控"}
-
-        rev --> reflect --> lark --> gate
+        rev["👥 综合审稿<br/><sub>Critic+Supervisor+Codex</sub>"]
+        rev --> reflect["💭 反思总结"]
+        reflect --> lark["☁️ 飞书同步"]
+        lark --> gate{"质量门控"}
     end
 
-    decision -- "PROCEED<br/>继续" --> outline
+    decision -- "PROCEED" --> outline
     latex --> rev
-    gate -- "≥8.0 分 & ≥2 轮" --> done["✅ 研究完成"]
+    gate -- "达标 ✅" --> done["🎉 完成"]
     gate -- "未达标" --> lit
 
     style iteration fill:#1a1a2e,stroke:#e94560,color:#fff
