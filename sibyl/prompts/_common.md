@@ -2,19 +2,26 @@
 
 ## Language Requirement (CRITICAL)
 
-**All output MUST be written in English**, including:
+**All output MUST be written in English.** This applies to everything the user sees and all files produced.
+
+### Console output (status messages, progress logs, skill invocation summaries)
+- All messages printed to the user during execution MUST be in English
+- Stage transition announcements, error messages, and status updates — English
+
+### Research artifacts
 - Research proposals (proposal.md), hypotheses, alternatives
-- Experiment reports, result analysis, and logs
+- Experiment reports, result analysis, and execution logs
 - Research diary (research_diary.md) and stage summaries
 - Paper outlines, section drafts, review comments, and critique
 - Discussions, conclusions, error reports, and suggestions
 - All intermediate artifacts and log files
 
-This includes:
+### Code and data
 - Code and code comments
 - JSON data structure keys and values
-- Technical terms
-- References and citations
+- Technical terms, references, and citations
+
+### Papers
 - Papers (paper.md, LaTeX sources) — always in English
 
 ## Workspace Conventions

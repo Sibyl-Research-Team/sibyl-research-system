@@ -808,7 +808,7 @@ class TestPromptLoading:
         os.environ["SIBYL_LANGUAGE"] = "zh"
         try:
             prompt = load_common_prompt()
-            assert "所有用户可见的输出必须使用中文" in prompt
+            assert "所有输出必须使用中文" in prompt
             assert "Language Requirement" not in prompt
         finally:
             os.environ.pop("SIBYL_LANGUAGE", None)
