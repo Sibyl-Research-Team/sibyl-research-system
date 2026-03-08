@@ -64,6 +64,18 @@ Sibyl 的所有 agent 角色已封装为 `context: fork` skill，运行在独立
    - 回到步骤 1 继续轮询（无限等待）
 ```
 
+### 动态 GPU 调度（实验监控中）
+实验运行中，每次轮询发现有任务完成（GPU 释放）时，动态调度排队任务：
+```
+1. 监控检测到 dispatch_needed=true（有任务刚完成）
+2. 调用 cli_dispatch_tasks(workspace_path) 获取新任务
+3. 返回 {dispatch: [...assignments], skills: [...skill_dicts]}
+4. 为每个 skill 启动新 experimenter Agent
+```
+- `gpu_progress.json` 新增 `running` map: 跟踪运行中任务的 GPU 占用
+- `register_running_tasks()` / `unregister_running_task()`: 注册/注销运行中任务
+- `get_next_batch()` 同时排除 completed 和 running 任务
+
 ### Codex 集成
 - `codex_enabled`: 启用后，idea_debate、result_debate、supervisor_review 阶段自动引入 Codex 独立审查
 - team action 的 `codex_step` 字段指定 Codex 审查 skill，在 team 讨论后执行

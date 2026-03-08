@@ -192,6 +192,91 @@ def estimate_batch_minutes(batch: list[dict], tasks: list[dict],
     return max_est
 
 
+def _load_progress(workspace_root: Path) -> tuple[set, set, dict, dict]:
+    """Load completed, running, and timing info from gpu_progress.json.
+
+    Returns (completed_ids, running_ids, running_map, timings).
+    running_map: {task_id: {"gpu_ids": [...], "started_at": "..."}}
+    """
+    progress_path = workspace_root / "exp" / "gpu_progress.json"
+    completed = set()
+    running_map = {}
+    timings = {}
+    if progress_path.exists():
+        try:
+            with open(progress_path, encoding="utf-8") as f:
+                progress = json.load(f)
+            completed = set(progress.get("completed", []))
+            running_map = progress.get("running", {})
+            timings = progress.get("timings", {})
+        except (json.JSONDecodeError, OSError):
+            pass
+    return completed, set(running_map.keys()), running_map, timings
+
+
+def register_running_tasks(workspace_root: Path, task_gpu_map: dict[str, list[int]]) -> None:
+    """Register tasks as running in gpu_progress.json.
+
+    Args:
+        workspace_root: Path to workspace directory
+        task_gpu_map: {task_id: [gpu_ids]} mapping of tasks to assigned GPUs
+    """
+    import datetime
+    progress_path = workspace_root / "exp" / "gpu_progress.json"
+    progress_path.parent.mkdir(parents=True, exist_ok=True)
+
+    progress = {"completed": [], "failed": [], "running": {}, "timings": {}}
+    if progress_path.exists():
+        try:
+            with open(progress_path, encoding="utf-8") as f:
+                progress.update(json.load(f))
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    if "running" not in progress:
+        progress["running"] = {}
+
+    now = datetime.datetime.now().isoformat()
+    for task_id, gpu_ids in task_gpu_map.items():
+        progress["running"][task_id] = {
+            "gpu_ids": gpu_ids,
+            "started_at": now,
+        }
+
+    with open(progress_path, "w", encoding="utf-8") as f:
+        json.dump(progress, f, indent=2)
+
+
+def unregister_running_task(workspace_root: Path, task_id: str) -> None:
+    """Remove a task from the running map in gpu_progress.json.
+
+    Called when a task completes (the experimenter also adds it to 'completed').
+    """
+    progress_path = workspace_root / "exp" / "gpu_progress.json"
+    if not progress_path.exists():
+        return
+    try:
+        with open(progress_path, encoding="utf-8") as f:
+            progress = json.load(f)
+    except (json.JSONDecodeError, OSError):
+        return
+    running = progress.get("running", {})
+    if task_id in running:
+        del running[task_id]
+        progress["running"] = running
+        with open(progress_path, "w", encoding="utf-8") as f:
+            json.dump(progress, f, indent=2)
+
+
+def get_running_gpu_ids(workspace_root: Path) -> list[int]:
+    """Get GPU IDs currently occupied by running tasks."""
+    _, _, running_map, _ = _load_progress(workspace_root)
+    occupied = set()
+    for info in running_map.values():
+        occupied.update(info.get("gpu_ids", []))
+    return sorted(occupied)
+
+
 def get_next_batch(workspace_root: Path, gpu_ids: list[int], mode: str = "PILOT",
                    gpus_per_task: int = 1) -> list[dict] | None:
     """Get the next batch of experiment tasks to execute.
@@ -221,23 +306,19 @@ def get_next_batch(workspace_root: Path, gpu_ids: list[int], mode: str = "PILOT"
     if not tasks or not isinstance(tasks, list):
         return None
 
-    # Load progress
-    progress_path = workspace_root / "exp" / "gpu_progress.json"
-    completed = set()
-    if progress_path.exists():
-        try:
-            with open(progress_path, encoding="utf-8") as f:
-                progress = json.load(f)
-            completed = set(progress.get("completed", []))
-        except (json.JSONDecodeError, OSError):
-            pass
+    # Load progress (completed + running)
+    completed, running_ids, _, _ = _load_progress(workspace_root)
 
-    # Filter out completed tasks
-    remaining = [t for t in tasks if t["id"] not in completed]
+    # Filter out completed AND running tasks
+    excluded = completed | running_ids
+    remaining = [t for t in tasks if t["id"] not in excluded]
     if not remaining:
+        # Check if there are running tasks (not truly done yet)
+        if running_ids:
+            return []  # Still running, nothing new to schedule
         return None  # All done
 
-    # Find ready tasks (all deps completed)
+    # Find ready tasks (all deps completed, not already running)
     ready = [
         t for t in remaining
         if all(dep in completed for dep in t.get("depends_on", []))
@@ -276,20 +357,16 @@ def get_batch_info(workspace_root: Path, gpu_ids: list[int], mode: str = "PILOT"
     if not tasks or not isinstance(tasks, list):
         return None
 
-    progress_path = workspace_root / "exp" / "gpu_progress.json"
-    completed = set()
-    timings = {}
-    if progress_path.exists():
-        try:
-            with open(progress_path, encoding="utf-8") as f:
-                progress = json.load(f)
-            completed = set(progress.get("completed", []))
-            timings = progress.get("timings", {})
-        except (json.JSONDecodeError, OSError):
-            pass
+    # Load progress (completed + running)
+    completed, running_ids, _, timings = _load_progress(workspace_root)
 
-    remaining = [t for t in tasks if t["id"] not in completed]
+    # Filter out completed AND running tasks
+    excluded = completed | running_ids
+    remaining = [t for t in tasks if t["id"] not in excluded]
     if not remaining:
+        if running_ids:
+            return {"batch": [], "estimated_minutes": 0,
+                    "remaining_count": len(running_ids), "total_count": len(tasks)}
         return None
 
     ready = [
@@ -299,7 +376,8 @@ def get_batch_info(workspace_root: Path, gpu_ids: list[int], mode: str = "PILOT"
 
     if not ready:
         return {"batch": [], "estimated_minutes": 0,
-                "remaining_count": len(remaining), "total_count": len(tasks)}
+                "remaining_count": len(remaining) + len(running_ids),
+                "total_count": len(tasks)}
 
     batch = assign_gpus(ready, gpu_ids, gpus_per_task)
     est = estimate_batch_minutes(batch, tasks, timings=timings)
@@ -589,8 +667,9 @@ REMOTE_DIR="{remote_project_dir}"
 ALL_TASKS=({task_ids_str})
 TOTAL={task_count}
 start_time=$(date +%s)
+PREV_DONE_COUNT=0
 
-echo '{{"status": "monitoring", "total": {task_count}, "completed": [], "pending": {json.dumps(task_ids)}}}' > "$MARKER"
+echo '{{"status": "monitoring", "total": {task_count}, "completed": [], "pending": {json.dumps(task_ids)}, "just_completed": [], "dispatch_needed": false}}' > "$MARKER"
 
 i=0
 while true; do
@@ -599,6 +678,8 @@ while true; do
     COMPLETED_JSON=""
     PENDING=""
     PENDING_JSON=""
+    JUST_COMPLETED=""
+    JUST_COMPLETED_JSON=""
     done_count=0
 
     for task_id in "${{ALL_TASKS[@]}}"; do
@@ -625,17 +706,24 @@ while true; do
         fi
     done
 
+    # Detect newly completed tasks since last poll
+    DISPATCH="false"
+    if [ "$done_count" -gt "$PREV_DONE_COUNT" ]; then
+        DISPATCH="true"
+    fi
+    PREV_DONE_COUNT=$done_count
+
     elapsed=$(( $(date +%s) - start_time ))
     echo "[monitor $i] $done_count/$TOTAL done (elapsed: ${{elapsed}}s)"
 
     # Write status to marker file
     if [ "$done_count" -eq "$TOTAL" ]; then
-        echo '{{"status": "all_complete", "completed": ['$COMPLETED_JSON'], "pending": [], "elapsed_sec": '$elapsed', "poll_count": '$i'}}' > "$MARKER"
+        echo '{{"status": "all_complete", "completed": ['$COMPLETED_JSON'], "pending": [], "just_completed": [], "dispatch_needed": false, "elapsed_sec": '$elapsed', "poll_count": '$i'}}' > "$MARKER"
         echo "[monitor] All {task_count} tasks complete!"{notify_block}
         exit 0
     fi
 
-    echo '{{"status": "monitoring", "completed": ['$COMPLETED_JSON'], "pending": ['$PENDING_JSON'], "elapsed_sec": '$elapsed', "poll_count": '$i'}}' > "$MARKER"
+    echo '{{"status": "monitoring", "completed": ['$COMPLETED_JSON'], "pending": ['$PENDING_JSON'], "just_completed": [], "dispatch_needed": '$DISPATCH', "elapsed_sec": '$elapsed', "poll_count": '$i'}}' > "$MARKER"
 {timeout_check}
     sleep {poll_interval_sec}
 done

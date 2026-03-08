@@ -83,6 +83,7 @@ def mark_task_done(task_id, results_dir, status="success", summary=""):
 - 成功和失败都要写（status 字段区分）
 - 系统后台监控进程每 5 分钟检查这些文件
 - **不写 DONE 文件的任务会被视为仍在运行，可能触发超时告警**
+- 任务完成后，系统会自动将释放的 GPU 分配给排队任务（动态调度）
 
 ## 显存探测与 Batch Size 自动优化（CRITICAL）
 
@@ -166,11 +167,12 @@ ssh {ssh_server} "test -f /path/DONE && cat /path/results.json"
 ```
 
 ### Progress tracking
-After completing all assigned tasks, update `{workspace}/exp/gpu_progress.json`:
-  1. Read existing file (or create `{"completed": [], "failed": [], "timings": {}}`)
+After completing each assigned task, update `{workspace}/exp/gpu_progress.json`:
+  1. Read existing file (or create `{"completed": [], "failed": [], "running": {}, "timings": {}}`)
   2. Append completed task IDs to `completed` array
-  3. Append failed task IDs to `failed` array
-  4. Record timing for each task in `timings`:
+  3. Remove completed task IDs from `running` map (if present)
+  4. Append failed task IDs to `failed` array, also remove from `running`
+  5. Record timing for each task in `timings`:
      ```json
      "timings": {
        "task_1a": {
@@ -184,13 +186,18 @@ After completing all assigned tasks, update `{workspace}/exp/gpu_progress.json`:
      - `planned_min`: from task_plan.json `estimated_minutes`
      - `actual_min`: wall-clock time from start to finish (rounded to integer)
      - Record timing even for failed tasks (helps calibrate future estimates)
-  5. Write back atomically (read → modify → write)
+  6. Write back atomically (read → modify → write)
 
 **Why timing matters**: The orchestrator uses actual/planned ratios from completed tasks
 to calibrate time estimates for future batches. Accurate timing data leads to better
 scheduling and more realistic progress reporting.
 
-  6. Record experiment configuration summary in `config_snapshot`:
+**Why removing from `running` matters**: The orchestrator uses `running` map to track
+which GPUs are occupied. When you remove a completed task from `running`, its GPUs
+become available for dynamic dispatch of queued tasks. If you don't remove it,
+the GPUs will appear occupied until the monitor detects the DONE marker.
+
+  7. Record experiment configuration summary in `config_snapshot`:
      ```json
      "timings": {
        "task_1a": {

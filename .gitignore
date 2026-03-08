@@ -12,6 +12,9 @@ exp/
 logs/
 writing/
 
+# Root-level config (local overrides, not committed)
+/config.yaml
+
 # Sensitive / credentials
 user_token_cache.json
 *.secret

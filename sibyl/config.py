@@ -164,6 +164,28 @@ class Config:
 
         return cfg
 
+    @classmethod
+    def from_yaml_chain(cls, *paths: str) -> "Config":
+        """Load config from multiple YAML files. Later files override earlier ones."""
+        merged: dict = {}
+        for path in paths:
+            with open(path, encoding="utf-8") as f:
+                data = yaml.safe_load(f) or {}
+            for key, val in data.items():
+                if isinstance(val, dict) and isinstance(merged.get(key), dict):
+                    merged[key].update(val)
+                else:
+                    merged[key] = val
+        # Write merged data to a temp structure and reuse from_yaml logic
+        import tempfile, os
+        fd, tmp = tempfile.mkstemp(suffix=".yaml")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                yaml.dump(merged, f, allow_unicode=True)
+            return cls.from_yaml(tmp)
+        finally:
+            os.unlink(tmp)
+
     def get_remote_env_cmd(self, project_name: str) -> str:
         """Return the environment activation command for remote execution."""
         if self.remote_env_type == "venv":

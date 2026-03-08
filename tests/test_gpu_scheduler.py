@@ -10,6 +10,7 @@ from sibyl.gpu_scheduler import (
     nvidia_smi_query_cmd, parse_free_gpus, gpu_poll_wait_script,
     read_poll_result, _compute_calibration_ratio,
     experiment_monitor_script, read_monitor_result,
+    register_running_tasks, unregister_running_task, get_running_gpu_ids,
 )
 
 
@@ -893,3 +894,175 @@ class TestReadMonitorResult:
         marker.write_text("not json")
         result = read_monitor_result(str(marker))
         assert result is None
+
+
+# ══════════════════════════════════════════════
+# Running task tracking
+# ══════════════════════════════════════════════
+
+class TestRegisterRunningTasks:
+    def test_register_new_tasks(self, tmp_path):
+        register_running_tasks(tmp_path, {"task_a": [0, 1], "task_b": [2]})
+        progress = json.loads((tmp_path / "exp" / "gpu_progress.json").read_text())
+        assert "task_a" in progress["running"]
+        assert progress["running"]["task_a"]["gpu_ids"] == [0, 1]
+        assert "task_b" in progress["running"]
+        assert progress["running"]["task_b"]["gpu_ids"] == [2]
+        assert "started_at" in progress["running"]["task_a"]
+
+    def test_register_preserves_existing(self, tmp_path):
+        (tmp_path / "exp").mkdir(parents=True)
+        (tmp_path / "exp" / "gpu_progress.json").write_text(json.dumps({
+            "completed": ["task_0"], "failed": [], "running": {},
+            "timings": {"task_0": {"planned_min": 10, "actual_min": 8}},
+        }))
+        register_running_tasks(tmp_path, {"task_a": [0]})
+        progress = json.loads((tmp_path / "exp" / "gpu_progress.json").read_text())
+        assert "task_0" in progress["completed"]
+        assert "task_a" in progress["running"]
+        assert progress["timings"]["task_0"]["actual_min"] == 8
+
+    def test_register_append_to_existing_running(self, tmp_path):
+        (tmp_path / "exp").mkdir(parents=True)
+        (tmp_path / "exp" / "gpu_progress.json").write_text(json.dumps({
+            "completed": [], "failed": [], "running": {
+                "task_a": {"gpu_ids": [0], "started_at": "2026-01-01T00:00:00"},
+            }, "timings": {},
+        }))
+        register_running_tasks(tmp_path, {"task_b": [1]})
+        progress = json.loads((tmp_path / "exp" / "gpu_progress.json").read_text())
+        assert "task_a" in progress["running"]
+        assert "task_b" in progress["running"]
+
+
+class TestUnregisterRunningTask:
+    def test_unregister_removes_task(self, tmp_path):
+        (tmp_path / "exp").mkdir(parents=True)
+        (tmp_path / "exp" / "gpu_progress.json").write_text(json.dumps({
+            "completed": [], "failed": [],
+            "running": {
+                "task_a": {"gpu_ids": [0], "started_at": "2026-01-01"},
+                "task_b": {"gpu_ids": [1], "started_at": "2026-01-01"},
+            },
+            "timings": {},
+        }))
+        unregister_running_task(tmp_path, "task_a")
+        progress = json.loads((tmp_path / "exp" / "gpu_progress.json").read_text())
+        assert "task_a" not in progress["running"]
+        assert "task_b" in progress["running"]
+
+    def test_unregister_nonexistent_is_noop(self, tmp_path):
+        (tmp_path / "exp").mkdir(parents=True)
+        (tmp_path / "exp" / "gpu_progress.json").write_text(json.dumps({
+            "completed": [], "failed": [], "running": {}, "timings": {},
+        }))
+        unregister_running_task(tmp_path, "nonexistent")  # should not crash
+
+    def test_unregister_no_file_is_noop(self, tmp_path):
+        unregister_running_task(tmp_path, "task_a")  # should not crash
+
+
+class TestGetRunningGpuIds:
+    def test_returns_occupied_gpus(self, tmp_path):
+        (tmp_path / "exp").mkdir(parents=True)
+        (tmp_path / "exp" / "gpu_progress.json").write_text(json.dumps({
+            "completed": [], "failed": [],
+            "running": {
+                "task_a": {"gpu_ids": [0, 1], "started_at": "2026-01-01"},
+                "task_b": {"gpu_ids": [3], "started_at": "2026-01-01"},
+            },
+            "timings": {},
+        }))
+        occupied = get_running_gpu_ids(tmp_path)
+        assert occupied == [0, 1, 3]
+
+    def test_no_running_returns_empty(self, tmp_path):
+        assert get_running_gpu_ids(tmp_path) == []
+
+
+class TestGetNextBatchWithRunning:
+    """Test that get_next_batch excludes running tasks."""
+
+    def _write_plan(self, ws, tasks):
+        (ws / "plan").mkdir(parents=True, exist_ok=True)
+        (ws / "plan" / "task_plan.json").write_text(json.dumps({"tasks": tasks}))
+
+    def _write_progress(self, ws, completed=None, running=None):
+        (ws / "exp").mkdir(parents=True, exist_ok=True)
+        (ws / "exp" / "gpu_progress.json").write_text(json.dumps({
+            "completed": completed or [],
+            "failed": [],
+            "running": running or {},
+            "timings": {},
+        }))
+
+    def test_excludes_running_tasks(self, tmp_path):
+        tasks = [
+            {"id": "a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
+            {"id": "b", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
+            {"id": "c", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
+        ]
+        self._write_plan(tmp_path, tasks)
+        self._write_progress(tmp_path, running={
+            "a": {"gpu_ids": [0], "started_at": "2026-01-01"},
+        })
+        batch = get_next_batch(tmp_path, [1, 2])
+        task_ids = [a["task_ids"][0] for a in batch]
+        assert "a" not in task_ids
+        assert "b" in task_ids
+        assert "c" in task_ids
+
+    def test_all_running_returns_empty(self, tmp_path):
+        tasks = [
+            {"id": "a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
+        ]
+        self._write_plan(tmp_path, tasks)
+        self._write_progress(tmp_path, running={
+            "a": {"gpu_ids": [0], "started_at": "2026-01-01"},
+        })
+        batch = get_next_batch(tmp_path, [1])
+        assert batch == []  # running but not completed
+
+    def test_completed_and_running_both_excluded(self, tmp_path):
+        tasks = [
+            {"id": "a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
+            {"id": "b", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
+            {"id": "c", "depends_on": ["a"], "gpu_count": 1, "estimated_minutes": 10},
+        ]
+        self._write_plan(tmp_path, tasks)
+        self._write_progress(
+            tmp_path,
+            completed=["a"],
+            running={"b": {"gpu_ids": [0], "started_at": "2026-01-01"}},
+        )
+        batch = get_next_batch(tmp_path, [1])
+        # c depends on a (completed) → ready; b is running → excluded
+        task_ids = [a["task_ids"][0] for a in batch]
+        assert task_ids == ["c"]
+
+    def test_dependency_on_running_task_blocked(self, tmp_path):
+        tasks = [
+            {"id": "a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
+            {"id": "b", "depends_on": ["a"], "gpu_count": 1, "estimated_minutes": 10},
+        ]
+        self._write_plan(tmp_path, tasks)
+        self._write_progress(tmp_path, running={
+            "a": {"gpu_ids": [0], "started_at": "2026-01-01"},
+        })
+        batch = get_next_batch(tmp_path, [1])
+        # b depends on a which is running (not completed) → b is blocked
+        assert batch == []
+
+
+class TestMonitorScriptDispatchNeeded:
+    """Test that experiment_monitor_script includes dispatch_needed field."""
+
+    def test_script_includes_dispatch_logic(self):
+        script = experiment_monitor_script(
+            ssh_server="test-server",
+            remote_project_dir="/tmp/test",
+            task_ids=["t1", "t2"],
+        )
+        assert "dispatch_needed" in script
+        assert "PREV_DONE_COUNT" in script
+        assert "DISPATCH" in script

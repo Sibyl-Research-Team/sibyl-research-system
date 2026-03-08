@@ -131,10 +131,16 @@ class FarsOrchestrator:
         if config is not None:
             self.config = config
         else:
-            # Auto-load project-level config.yaml if it exists
+            # Load config: root config.yaml as base, project config overrides
+            root_config = Path("config.yaml")
             project_config = Path(workspace_path) / "config.yaml"
-            if project_config.exists():
+            if root_config.exists() and project_config.exists():
+                self.config = Config.from_yaml_chain(
+                    str(root_config), str(project_config))
+            elif project_config.exists():
                 self.config = Config.from_yaml(str(project_config))
+            elif root_config.exists():
+                self.config = Config.from_yaml(str(root_config))
             else:
                 self.config = Config()
         self.ws = Workspace(
@@ -609,10 +615,17 @@ class FarsOrchestrator:
             f"预计 {est_min}min{cal_hint}: {gpu_summary}"
         )
 
-        # Build experiment monitor for background progress tracking
+        # Register dispatched tasks as running in gpu_progress.json
+        from sibyl.gpu_scheduler import register_running_tasks
+        task_gpu_map = {}
         all_task_ids = []
         for assignment in batch:
-            all_task_ids.extend(assignment["task_ids"])
+            for tid in assignment["task_ids"]:
+                task_gpu_map[tid] = assignment["gpu_ids"]
+                all_task_ids.append(tid)
+        register_running_tasks(self.ws.root, task_gpu_map)
+
+        # Build experiment monitor for background progress tracking
         monitor = self._build_experiment_monitor(all_task_ids, est_min)
 
         action_type = "skills_parallel" if len(skills) > 1 else "skill"
@@ -703,6 +716,14 @@ class FarsOrchestrator:
             "ssh_connection": "default",
             "check_cmd": done_checks,
             "remote_dir": remote_dir,
+            # Dynamic dispatch: when a task completes, dispatch next queued task
+            "dynamic_dispatch": True,
+            "dispatch_cmd": (
+                f'cd {Path(self.workspace_path).parent.parent} && '
+                f'.venv/bin/python3 -c "'
+                f"from sibyl.orchestrate import cli_dispatch_tasks; "
+                f"cli_dispatch_tasks('{self.workspace_path}')\""
+            ),
         }
 
     def _gpu_poll_action(self, stage: str) -> Action:
@@ -1320,10 +1341,14 @@ class FarsOrchestrator:
                         f"PIVOT requested but cycle limit reached ({cycle}/{self.config.idea_exp_cycles})"
                     )
 
-        # experiment stages: loop if more batches remain
+        # experiment stages: loop if more batches remain OR tasks still running
         if current_stage in ("pilot_experiments", "experiment_cycle"):
-            from sibyl.gpu_scheduler import get_batch_info
+            from sibyl.gpu_scheduler import get_batch_info, get_running_gpu_ids
             exp_mode = "PILOT" if current_stage == "pilot_experiments" else "FULL"
+            # Check if any tasks are still running
+            running_gpus = get_running_gpu_ids(self.ws.root)
+            if running_gpus:
+                return (current_stage, None)  # wait for running tasks
             info = get_batch_info(
                 self.ws.root, list(range(self.config.max_gpus)), exp_mode,
                 gpus_per_task=self.config.gpus_per_task,
@@ -1539,6 +1564,85 @@ def cli_experiment_status():
         print(json.dumps({"status": "no_monitor", "message": "No experiment monitor running"}))
     else:
         print(json.dumps(result, indent=2))
+
+
+def cli_dispatch_tasks(workspace_path: str):
+    """CLI: Dynamic dispatch — find free GPUs and return next task assignments.
+
+    Called during experiment monitoring when tasks complete and GPUs become free.
+    Checks gpu_progress.json for running tasks, determines freed GPUs,
+    and returns new task assignments (skill dicts) for immediate dispatch.
+
+    Output JSON:
+        {"dispatch": [...assignments...], "skills": [...skill_dicts...]}
+        or {"dispatch": [], "reason": "no_free_gpus|no_ready_tasks|all_done"}
+    """
+    from sibyl.gpu_scheduler import (
+        get_batch_info, get_running_gpu_ids, register_running_tasks,
+        read_poll_result,
+    )
+    o = FarsOrchestrator(workspace_path)
+    status = o.ws.get_status()
+    stage = status.stage
+    if stage not in ("pilot_experiments", "experiment_cycle"):
+        print(json.dumps({"dispatch": [], "reason": "not_experiment_stage"}))
+        return
+
+    mode = "PILOT" if stage == "pilot_experiments" else "FULL"
+
+    # Determine available GPUs: all configured minus occupied by running tasks
+    if o.config.gpu_poll_enabled:
+        polled = read_poll_result()
+        all_gpu_ids = polled if polled else list(range(o.config.max_gpus))
+    else:
+        all_gpu_ids = list(range(o.config.max_gpus))
+
+    occupied = set(get_running_gpu_ids(o.ws.root))
+    free_gpus = [g for g in all_gpu_ids if g not in occupied]
+
+    if not free_gpus:
+        print(json.dumps({"dispatch": [], "reason": "no_free_gpus"}))
+        return
+
+    info = get_batch_info(
+        o.ws.root, free_gpus, mode,
+        gpus_per_task=o.config.gpus_per_task,
+    )
+
+    if info is None:
+        print(json.dumps({"dispatch": [], "reason": "all_done"}))
+        return
+
+    batch = info["batch"]
+    if not batch:
+        print(json.dumps({"dispatch": [], "reason": "no_ready_tasks"}))
+        return
+
+    # Register new tasks as running
+    task_gpu_map = {}
+    for assignment in batch:
+        for tid in assignment["task_ids"]:
+            task_gpu_map[tid] = assignment["gpu_ids"]
+    register_running_tasks(o.ws.root, task_gpu_map)
+
+    # Build skill dicts for each assignment
+    skills = []
+    for assignment in batch:
+        task_ids = ",".join(assignment["task_ids"])
+        gpu_ids = assignment["gpu_ids"]
+        skills.append(
+            o._experiment_skill_dict(mode, workspace_path, gpu_ids, task_ids)
+        )
+
+    gpu_summary = ", ".join(
+        f"{a['task_ids'][0]}→GPU{a['gpu_ids']}" for a in batch
+    )
+    print(json.dumps({
+        "dispatch": batch,
+        "skills": skills,
+        "description": f"动态调度: {gpu_summary}",
+        "estimated_minutes": info["estimated_minutes"],
+    }, indent=2))
 
 
 def cli_list_projects(workspaces_dir: str = "workspaces"):

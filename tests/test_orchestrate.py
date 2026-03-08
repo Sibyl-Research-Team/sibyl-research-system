@@ -7,7 +7,7 @@ import pytest
 
 from sibyl.orchestrate import (
     FarsOrchestrator, Action, load_prompt, load_common_prompt,
-    PAPER_SECTIONS, CHECKPOINT_DIRS, cli_checkpoint,
+    PAPER_SECTIONS, CHECKPOINT_DIRS, cli_checkpoint, cli_dispatch_tasks,
 )
 from sibyl.config import Config
 from sibyl.workspace import Workspace
@@ -1228,3 +1228,180 @@ class TestCliCheckpoint:
         captured = capsys.readouterr()
         result = json.loads(captured.out)
         assert result["status"] == "error"
+
+
+# ══════════════════════════════════════════════
+# Dynamic GPU dispatch
+# ══════════════════════════════════════════════
+
+class TestDynamicGpuDispatch:
+    """Test dynamic GPU dispatch during experiment monitoring."""
+
+    def _write_task_plan(self, ws, tasks):
+        ws.write_file("plan/task_plan.json", json.dumps({"tasks": tasks}))
+
+    def _write_progress(self, ws, completed=None, running=None, timings=None):
+        ws.write_file("exp/gpu_progress.json", json.dumps({
+            "completed": completed or [],
+            "failed": [],
+            "running": running or {},
+            "timings": timings or {},
+        }))
+
+    def _write_config(self, ws, **overrides):
+        """Write a config.yaml so cli_dispatch_tasks picks up test settings."""
+        import yaml
+        config = {
+            "gpu_poll_enabled": False,
+            "max_gpus": 4,
+            "workspaces_dir": str(ws.root.parent),
+        }
+        config.update(overrides)
+        ws.write_file("config.yaml", yaml.dump(config))
+
+    def test_dispatch_returns_new_tasks(self, make_orchestrator, capsys):
+        o = make_orchestrator(stage="pilot_experiments", gpu_poll_enabled=False, max_gpus=4)
+        tasks = [
+            {"id": "a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
+            {"id": "b", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
+            {"id": "c", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
+        ]
+        self._write_task_plan(o.ws, tasks)
+        self._write_config(o.ws)
+        # a and b are running, c is free
+        self._write_progress(o.ws, running={
+            "a": {"gpu_ids": [0], "started_at": "2026-01-01"},
+            "b": {"gpu_ids": [1], "started_at": "2026-01-01"},
+        })
+        cli_dispatch_tasks(str(o.ws.root))
+        captured = capsys.readouterr()
+        result = json.loads(captured.out)
+        assert len(result["dispatch"]) == 1
+        assert result["dispatch"][0]["task_ids"] == ["c"]
+        assert len(result["skills"]) == 1
+
+    def test_dispatch_no_free_gpus(self, make_orchestrator, capsys):
+        o = make_orchestrator(stage="pilot_experiments", gpu_poll_enabled=False, max_gpus=2)
+        tasks = [
+            {"id": "a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
+            {"id": "b", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
+            {"id": "c", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
+        ]
+        self._write_task_plan(o.ws, tasks)
+        self._write_config(o.ws, max_gpus=2)
+        self._write_progress(o.ws, running={
+            "a": {"gpu_ids": [0], "started_at": "2026-01-01"},
+            "b": {"gpu_ids": [1], "started_at": "2026-01-01"},
+        })
+        cli_dispatch_tasks(str(o.ws.root))
+        captured = capsys.readouterr()
+        result = json.loads(captured.out)
+        assert result["dispatch"] == []
+        assert result["reason"] == "no_free_gpus"
+
+    def test_dispatch_all_done(self, make_orchestrator, capsys):
+        o = make_orchestrator(stage="pilot_experiments", gpu_poll_enabled=False, max_gpus=4)
+        tasks = [
+            {"id": "a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
+        ]
+        self._write_task_plan(o.ws, tasks)
+        self._write_config(o.ws)
+        self._write_progress(o.ws, completed=["a"])
+        cli_dispatch_tasks(str(o.ws.root))
+        captured = capsys.readouterr()
+        result = json.loads(captured.out)
+        assert result["dispatch"] == []
+        assert result["reason"] == "all_done"
+
+    def test_dispatch_not_experiment_stage(self, make_orchestrator, capsys):
+        o = make_orchestrator(stage="planning")
+        self._write_config(o.ws)
+        cli_dispatch_tasks(str(o.ws.root))
+        captured = capsys.readouterr()
+        result = json.loads(captured.out)
+        assert result["dispatch"] == []
+        assert result["reason"] == "not_experiment_stage"
+
+    def test_dispatch_registers_new_running(self, make_orchestrator, capsys):
+        o = make_orchestrator(stage="experiment_cycle", gpu_poll_enabled=False, max_gpus=4)
+        tasks = [
+            {"id": "a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
+            {"id": "b", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
+        ]
+        self._write_task_plan(o.ws, tasks)
+        self._write_config(o.ws)
+        self._write_progress(o.ws, completed=["a"])
+        cli_dispatch_tasks(str(o.ws.root))
+        captured = capsys.readouterr()
+        result = json.loads(captured.out)
+        assert len(result["dispatch"]) == 1
+        assert result["dispatch"][0]["task_ids"] == ["b"]
+        # Verify b is now registered as running
+        progress = json.loads(o.ws.read_file("exp/gpu_progress.json"))
+        assert "b" in progress["running"]
+
+
+class TestExperimentStageWithRunning:
+    """Test that _natural_next_stage waits for running tasks."""
+
+    def _write_task_plan(self, ws, tasks):
+        ws.write_file("plan/task_plan.json", json.dumps({"tasks": tasks}))
+
+    def _write_progress(self, ws, completed=None, running=None):
+        ws.write_file("exp/gpu_progress.json", json.dumps({
+            "completed": completed or [],
+            "failed": [],
+            "running": running or {},
+            "timings": {},
+        }))
+
+    def test_stays_in_stage_while_tasks_running(self, make_orchestrator):
+        o = make_orchestrator(stage="pilot_experiments", gpu_poll_enabled=False)
+        tasks = [
+            {"id": "a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
+        ]
+        self._write_task_plan(o.ws, tasks)
+        self._write_progress(o.ws, running={
+            "a": {"gpu_ids": [0], "started_at": "2026-01-01"},
+        })
+        next_stage, _ = o._natural_next_stage("pilot_experiments")
+        assert next_stage == "pilot_experiments"  # stays because task still running
+
+    def test_advances_when_no_running_no_remaining(self, make_orchestrator):
+        o = make_orchestrator(stage="pilot_experiments", gpu_poll_enabled=False)
+        tasks = [
+            {"id": "a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
+        ]
+        self._write_task_plan(o.ws, tasks)
+        self._write_progress(o.ws, completed=["a"])
+        next_stage, _ = o._natural_next_stage("pilot_experiments")
+        assert next_stage == "experiment_cycle"  # all done, advance
+
+
+class TestExperimentBatchRegistersRunning:
+    """Test that _action_experiment_batch registers tasks in running map."""
+
+    def test_batch_action_registers_running(self, make_orchestrator):
+        o = make_orchestrator(stage="pilot_experiments", gpu_poll_enabled=False, max_gpus=2)
+        tasks = [
+            {"id": "a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
+            {"id": "b", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
+        ]
+        o.ws.write_file("plan/task_plan.json", json.dumps({"tasks": tasks}))
+        action = o.get_next_action()
+        assert action["action_type"] in ("skill", "skills_parallel")
+        # Verify tasks are registered as running
+        progress = json.loads(o.ws.read_file("exp/gpu_progress.json"))
+        assert "a" in progress["running"]
+        assert "b" in progress["running"]
+
+    def test_batch_action_includes_dynamic_dispatch(self, make_orchestrator):
+        o = make_orchestrator(stage="pilot_experiments", gpu_poll_enabled=False, max_gpus=2)
+        tasks = [
+            {"id": "a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
+        ]
+        o.ws.write_file("plan/task_plan.json", json.dumps({"tasks": tasks}))
+        action = o.get_next_action()
+        assert action["experiment_monitor"] is not None
+        assert action["experiment_monitor"]["dynamic_dispatch"] is True
+        assert "dispatch_cmd" in action["experiment_monitor"]

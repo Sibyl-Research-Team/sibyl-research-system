@@ -90,6 +90,7 @@ from sibyl.orchestrate import cli_status     # 查看项目状态
 from sibyl.orchestrate import cli_list_projects  # 列出所有项目
 from sibyl.orchestrate import cli_init       # 初始化（topic 模式）
 from sibyl.orchestrate import cli_init_from_spec # 初始化（spec 模式）
+from sibyl.orchestrate import cli_dispatch_tasks # 动态调度: 空闲 GPU 派发排队任务
 ```
 
 **不存在的函数**：`load_state`、`get_state`、`get_project` 等。查状态用 `cli_status`。
@@ -132,21 +133,34 @@ LOOP:
        SSH 超时和轮询间隔，避免过早超时或过度轮询浪费 token。
        实验完成后，编排器会自动检查是否有剩余任务并循环执行下一批。
 
-       **实验监控（experiment_monitor）：**
+       **实验监控与动态调度（experiment_monitor）：**
        如果 action 包含 experiment_monitor 字段，在启动实验 skill 的同时：
-       **SSH MCP 模式（推荐，沙盒环境兼容）：**
-       1. 每隔 experiment_monitor.poll_interval_sec 秒，用 SSH MCP execute-command 执行 check_cmd
-       2. 解析输出中的 `task_id:DONE` / `task_id:PENDING` 状态
-       3. 所有任务 DONE 或超时后，将状态写入 marker_file
-       4. 也可用 `ps aux | grep task_id` 检查远程进程是否仍在运行
-       **Bash 直连模式（需要直接 SSH 访问）：**
+
+       **监控轮询循环（SSH MCP 模式）：**
+       ```
+       WHILE true:
+         1. 等待 experiment_monitor.poll_interval_sec 秒
+         2. 用 SSH MCP execute-command 执行 check_cmd，解析 task_id:DONE/PENDING
+         3. 读取 marker_file 检查状态:
+            - status="all_complete": 所有任务完成，跳出循环
+            - status="timeout": 监控超时，报告并暂停
+            - dispatch_needed=true: 有任务刚完成，GPU 释放
+
+         4. **动态调度（dispatch_needed=true 时）：**
+            a. 调用 cli_dispatch_tasks 获取新任务:
+               .venv/bin/python3 -c "from sibyl.orchestrate import cli_dispatch_tasks; cli_dispatch_tasks('WORKSPACE_PATH')"
+            b. 如果返回 dispatch 非空:
+               - 为每个 skill 启动新的 Agent（run_in_background）
+               - 更新 check_cmd 加入新 task_ids
+               - 日志: "动态调度: task_X → GPU[Y]"
+            c. 如果 dispatch 为空（no_ready_tasks/no_free_gpus）: 继续等待
+       ```
+
+       **Bash 直连模式（备选）：**
        1. 将 experiment_monitor.script 写入 /tmp/sibyl_exp_monitor.sh
        2. 使用 Bash 工具后台执行: `bash /tmp/sibyl_exp_monitor.sh &`（run_in_background）
        3. 监控脚本定期 SSH 检查 DONE 标记文件，进度写入 marker_file
-       4. 实验超时时读取 marker_file 检查实际完成情况：
-          - status="all_complete": 所有任务已完成，可以收集结果
-          - status="monitoring": 部分完成，继续等待或收集已完成的结果
-          - status="timeout": 监控超时，报告并暂停
+       4. 主 session 定期读取 marker_file，dispatch_needed=true 时调用 cli_dispatch_tasks
      "agents_parallel": 遗留格式（cross-critique 仍用此方式）。
        依次执行 action.agents 列表中的各 agent 任务。
      "team": 使用 Agent Team 进行结构化多 agent 协作讨论。
