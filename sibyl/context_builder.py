@@ -74,7 +74,7 @@ class ContextBuilder:
             return self._format_items([(item, item.content) for item in sorted_items])
 
         # Allocate budget proportionally by priority
-        total_priority = sum(item.priority for item in sorted_items)
+        total_priority = sum(item.priority for item in sorted_items) or len(sorted_items)
         remaining_budget = self.budget
         allocated: list[tuple[ContextItem, str]] = []
 
@@ -92,7 +92,7 @@ class ContextBuilder:
             if share > 0:
                 truncated = truncate_to_tokens(item.content, share)
                 allocated.append((item, truncated))
-                remaining_budget -= estimate_tokens(truncated)
+                remaining_budget -= share
 
             if remaining_budget <= 0:
                 break

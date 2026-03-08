@@ -63,6 +63,7 @@
 ├── supervisor/              # 监督审查
 ├── critic/                  # 批评反馈
 ├── reflection/              # 反思产出
+├── codex/                  # Codex 独立审查结果
 ├── logs/                    # 流水线日志
 │   ├── iterations/
 │   └── research_diary.md    # 研究日记（中文）

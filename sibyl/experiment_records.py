@@ -41,7 +41,7 @@ class ExperimentDB:
 
     def record(self, entry: ExperimentRecord):
         """Append an experiment record."""
-        with open(self.db_path, "a") as f:
+        with open(self.db_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(asdict(entry), ensure_ascii=False) + "\n")
 
     def query(self, **filters) -> list[dict]:
@@ -76,7 +76,10 @@ class ExperimentDB:
         records = []
         if not self.db_path.exists():
             return records
-        for line in self.db_path.read_text().splitlines():
+        for line in self.db_path.read_text(encoding="utf-8").splitlines():
             if line.strip():
-                records.append(json.loads(line))
+                try:
+                    records.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue  # skip corrupted lines
         return records

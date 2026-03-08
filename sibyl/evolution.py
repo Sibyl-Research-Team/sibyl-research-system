@@ -75,7 +75,7 @@ class EvolutionEngine:
         self.EVOLUTION_DIR.mkdir(parents=True, exist_ok=True)
         self.outcomes_path = self.EVOLUTION_DIR / "outcomes.jsonl"
         self.insights_path = self.EVOLUTION_DIR / "insights.json"
-        self.patches_path = self.EVOLUTION_DIR / "prompt_patches.json"
+
 
     def record_outcome(self, project: str, stage: str,
                        issues: list[str], score: float, notes: str = ""):
@@ -84,7 +84,7 @@ class EvolutionEngine:
             project=project, stage=stage, issues=issues,
             score=score, notes=notes
         )
-        with open(self.outcomes_path, "a") as f:
+        with open(self.outcomes_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(asdict(record), ensure_ascii=False) + "\n")
 
     def analyze_patterns(self) -> list[EvolutionInsight]:
@@ -132,42 +132,6 @@ class EvolutionEngine:
         self._save_insights(insights)
         return insights
 
-    def generate_prompt_patches(self) -> dict[str, str]:
-        """Generate suggested prompt improvements based on insights."""
-        insights = self.analyze_patterns()
-        patches = {}
-
-        for insight in insights:
-            if insight.severity == "high":
-                for stage in insight.affected_stages:
-                    key = f"{stage}_enhancement"
-                    patches[key] = (
-                        f"LEARNED FROM EXPERIENCE: {insight.pattern} "
-                        f"(seen {insight.frequency}x). "
-                        f"Suggestion: {insight.suggestion}"
-                    )
-
-        # Save patches
-        if patches:
-            self.patches_path.write_text(
-                json.dumps(patches, indent=2, ensure_ascii=False)
-            )
-
-        return patches
-
-    def apply_evolution(self, patches: dict[str, str],
-                        dry_run: bool = True) -> dict[str, str]:
-        """Apply prompt patches. Returns applied patches."""
-        if dry_run:
-            return {k: f"[DRY RUN] Would apply: {v}" for k, v in patches.items()}
-
-        # In production, this would modify PromptTemplates
-        applied = {}
-        for key, patch in patches.items():
-            applied[key] = patch
-
-        return applied
-
     def get_quality_trend(self, project: str | None = None) -> list[dict]:
         """Get quality score trend over time."""
         outcomes = self._load_outcomes()
@@ -182,9 +146,12 @@ class EvolutionEngine:
         if not self.outcomes_path.exists():
             return []
         records = []
-        for line in self.outcomes_path.read_text().splitlines():
+        for line in self.outcomes_path.read_text(encoding="utf-8").splitlines():
             if line.strip():
-                records.append(json.loads(line))
+                try:
+                    records.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue  # skip corrupted lines
         return records
 
     def generate_lessons_overlay(self, project: str | None = None) -> dict[str, str]:
@@ -277,5 +244,6 @@ class EvolutionEngine:
     def _save_insights(self, insights: list[EvolutionInsight]):
         data = [asdict(i) for i in insights]
         self.insights_path.write_text(
-            json.dumps(data, indent=2, ensure_ascii=False)
+            json.dumps(data, indent=2, ensure_ascii=False),
+            encoding="utf-8",
         )

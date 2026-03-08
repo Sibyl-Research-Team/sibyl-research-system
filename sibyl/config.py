@@ -39,6 +39,19 @@ class Config:
     debate_rounds: int = 2
     writing_revision_rounds: int = 2
 
+    # Codex integration
+    codex_enabled: bool = True
+    codex_model: str = ""  # Codex model (empty = use default; ChatGPT accounts don't support custom models)
+
+    # Writing mode
+    writing_mode: str = "sequential"  # "sequential" | "parallel" | "codex"
+    codex_writing_model: str = ""  # Codex writing model (empty = use default)
+
+    # Experiment execution
+    experiment_mode: str = "ssh_mcp"  # "ssh_mcp" | "server_codex" | "server_claude"
+    server_codex_path: str = "codex"  # Codex CLI path on server
+    server_claude_path: str = "claude"  # Claude CLI path on server
+
     # Lark sync
     lark_enabled: bool = True
 
@@ -66,8 +79,8 @@ class Config:
 
     @classmethod
     def from_yaml(cls, path: str) -> "Config":
-        with open(path) as f:
-            data = yaml.safe_load(f)
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
         cfg = cls()
         cfg.workspaces_dir = Path(data.get("workspaces_dir", "workspaces"))
         for agent_name in ["ideation", "planning", "experiment", "writing"]:
@@ -81,6 +94,8 @@ class Config:
             "debate_rounds", "writing_revision_rounds",
             "lark_enabled", "evolution_enabled",
             "idea_exp_cycles",
+            "codex_enabled", "codex_model", "writing_mode", "codex_writing_model",
+            "experiment_mode", "server_codex_path", "server_claude_path",
         ]:
             if key in data:
                 setattr(cfg, key, data[key])
@@ -92,4 +107,19 @@ class Config:
         for key in ["model_tiers", "agent_tier_map"]:
             if key in data:
                 getattr(cfg, key).update(data[key])
+
+        # Validate enum-like fields
+        valid_writing_modes = {"sequential", "parallel", "codex"}
+        if cfg.writing_mode not in valid_writing_modes:
+            raise ValueError(
+                f"Invalid writing_mode '{cfg.writing_mode}', "
+                f"must be one of {valid_writing_modes}"
+            )
+        valid_experiment_modes = {"ssh_mcp", "server_codex", "server_claude"}
+        if cfg.experiment_mode not in valid_experiment_modes:
+            raise ValueError(
+                f"Invalid experiment_mode '{cfg.experiment_mode}', "
+                f"must be one of {valid_experiment_modes}"
+            )
+
         return cfg
