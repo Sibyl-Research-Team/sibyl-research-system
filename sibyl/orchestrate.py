@@ -313,7 +313,16 @@ class FarsOrchestrator:
         )
 
     def _action_idea_debate(self, topic: str, ws: str) -> Action:
-        """Agent Team: 3 teammates generate, debate, and synthesize research ideas."""
+        """Agent Team: 6 teammates generate, debate, and synthesize research ideas.
+
+        Six diverse perspectives ensure thorough exploration:
+        - Innovator: bold cross-domain transfer ideas
+        - Pragmatist: engineering-feasible, resource-conscious ideas
+        - Theoretical: mathematically grounded, provable guarantees
+        - Contrarian: challenges assumptions, finds blind spots
+        - Interdisciplinary: borrows from other sciences (neuro, physics, bio)
+        - Empiricist: experiment-first thinking, rigorous evaluation design
+        """
         # Prepare context file for teammates to read
         spec = self.ws.read_file("spec.md") or ""
         initial_ideas = self.ws.read_file("idea/initial_ideas.md") or ""
@@ -336,13 +345,15 @@ class FarsOrchestrator:
         team_prompt = (
             f"Create an agent team to generate and debate research ideas for: {topic}\n\n"
             f"Workspace: {ws}\n\n"
-            f"Spawn 3 teammates:\n"
-            f"1. Innovator: bold cross-disciplinary ideas. Read {ws}/context/idea_context.md for background. "
-            f"Write idea to {ws}/idea/perspectives/innovator.md\n"
-            f"2. Pragmatist: engineering-feasible ideas. Read same context. "
-            f"Write to {ws}/idea/perspectives/pragmatist.md\n"
-            f"3. Theoretical: mathematically grounded ideas. Read same context. "
-            f"Write to {ws}/idea/perspectives/theoretical.md\n\n"
+            f"Spawn 6 teammates with diverse perspectives:\n"
+            f"1. Innovator: bold cross-disciplinary ideas\n"
+            f"2. Pragmatist: engineering-feasible ideas\n"
+            f"3. Theoretical: mathematically grounded ideas\n"
+            f"4. Contrarian: challenges assumptions, finds blind spots\n"
+            f"5. Interdisciplinary: borrows from other sciences\n"
+            f"6. Empiricist: experiment-first, rigorous evaluation design\n\n"
+            f"Each reads {ws}/context/idea_context.md for background and writes to "
+            f"{ws}/idea/perspectives/<role>.md\n\n"
             f"After generating ideas, have teammates critique each other's work (score 1-10). "
             f"Write critiques to {ws}/idea/debate/CRITIC_on_AUTHOR.md\n\n"
             f"Finally, synthesize all ideas and critiques into a final proposal at "
@@ -354,6 +365,9 @@ class FarsOrchestrator:
             {"name": "innovator", "skill": "sibyl-innovator", "args": f"{topic} {ws}"},
             {"name": "pragmatist", "skill": "sibyl-pragmatist", "args": f"{topic} {ws}"},
             {"name": "theoretical", "skill": "sibyl-theoretical", "args": f"{topic} {ws}"},
+            {"name": "contrarian", "skill": "sibyl-contrarian", "args": f"{topic} {ws}"},
+            {"name": "interdisciplinary", "skill": "sibyl-interdisciplinary", "args": f"{topic} {ws}"},
+            {"name": "empiricist", "skill": "sibyl-empiricist", "args": f"{topic} {ws}"},
         ]
 
         post_steps = [
@@ -376,7 +390,8 @@ class FarsOrchestrator:
         return Action(
             action_type="team",
             team=team_dict,
-            description="Agent Team: 3人辩论生成研究提案（创新者+实用主义者+理论家）"
+            description="Agent Team: 6人辩论生成研究提案"
+                        "（创新者+实用主义者+理论家+反对者+跨学科者+实验主义者）"
                         + (" + Codex 独立审查" if self.config.codex_enabled else ""),
             stage="idea_debate",
         )

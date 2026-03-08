@@ -529,16 +529,19 @@ class TestActionGeneration:
         assert action["skills"][0]["name"] == "sibyl-server-experimenter"
 
     def test_idea_debate_team_structure(self, make_orchestrator):
-        """idea_debate returns structured team with 3 teammates + post_steps."""
+        """idea_debate returns structured team with 6 teammates + post_steps."""
         o = make_orchestrator(stage="idea_debate")
         action = o.get_next_action()
         team = action["team"]
         assert team["team_name"] == "sibyl-idea-debate"
-        assert len(team["teammates"]) == 3
+        assert len(team["teammates"]) == 6
         names = [t["name"] for t in team["teammates"]]
         assert "innovator" in names
         assert "pragmatist" in names
         assert "theoretical" in names
+        assert "contrarian" in names
+        assert "interdisciplinary" in names
+        assert "empiricist" in names
         for t in team["teammates"]:
             assert "skill" in t
             assert "args" in t
