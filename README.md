@@ -23,54 +23,48 @@ What truly sets Sibyl apart is its **dual-loop architecture**:
 
 ---
 
-## Get Started in 5 Minutes
+## Get Started
 
-### 1. Install
+### Recommended: Let Claude Configure Everything
+
+The fastest way to set up Sibyl is to let Claude Code do it for you. Clone the repo, open it in Claude Code, and ask:
 
 ```bash
 git clone https://github.com/Sibyl-Research/sibyl-research-system.git
 cd sibyl-research-system
-chmod +x setup.sh && ./setup.sh
+claude --plugin-dir ./plugin
 ```
 
-### 2. Configure
+Then tell Claude:
 
-Set up your API key and GPU server:
+> **"Help me set up Sibyl System. Read docs/setup-guide.md and configure everything."**
+
+Claude will automatically check your environment, install dependencies, configure MCP servers, create config files, and ask you only for what it can't detect (GPU server IP, username, etc.). The [setup guide](docs/setup-guide.md) is a step-by-step checklist designed for Claude to follow.
+
+### Manual Setup
+
+<details>
+<summary>Click to expand manual setup instructions</summary>
+
+#### Prerequisites
+
+- Python 3.12+, Node.js 18+
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)
+- GPU server with SSH access
+- `ANTHROPIC_API_KEY` environment variable
+- `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` environment variable
+
+#### 1. Install
 
 ```bash
-# Required environment variables (add to ~/.zshrc or ~/.bashrc)
-export ANTHROPIC_API_KEY="sk-ant-..."
-export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
+git clone https://github.com/Sibyl-Research/sibyl-research-system.git
+cd sibyl-research-system
+chmod +x setup.sh && ./setup.sh    # Interactive: creates venv, installs deps, configures MCP
 ```
 
-Set up SSH access to your GPU server (skip if already configured):
+#### 2. Configure MCP Servers
 
-```bash
-# Add to ~/.ssh/config
-Host my-gpu-box
-    HostName 192.168.1.100
-    User your-username
-    IdentityFile ~/.ssh/id_ed25519
-    ServerAliveInterval 60
-
-# Verify connection
-ssh my-gpu-box "nvidia-smi"
-```
-
-Create a root-level config file (git-ignored, sets machine-level defaults):
-
-```yaml
-# config.yaml (project root)
-ssh_server: "my-gpu-box"           # Must match Host in ~/.ssh/config
-remote_base: "/home/user/sibyl"    # Base dir on GPU server
-max_gpus: 4                        # GPUs to use
-```
-
-> Per-project overrides go in `workspaces/<project>/config.yaml`. See [Configuration](docs/configuration.md) for all 35+ options.
-
-### 3. Configure MCP Servers
-
-`setup.sh` automatically creates `~/.mcp.json` with the two required servers. To configure manually:
+Two MCP servers are required. `setup.sh` configures them interactively, or add manually to `~/.mcp.json`:
 
 ```json
 {
@@ -78,8 +72,7 @@ max_gpus: 4                        # GPUs to use
     "ssh-mcp-server": {
       "command": "npx",
       "args": ["-y", "@fangjunjie/ssh-mcp-server",
-               "--host", "YOUR_GPU_IP",
-               "--port", "22",
+               "--host", "YOUR_GPU_IP", "--port", "22",
                "--username", "YOUR_USER",
                "--privateKey", "~/.ssh/id_ed25519"]
     },
@@ -91,31 +84,31 @@ max_gpus: 4                        # GPUs to use
 }
 ```
 
-> **Important**: Server names `"ssh-mcp-server"` and `"arxiv-mcp-server"` must be exact — agent prompts reference tools as `mcp__ssh-mcp-server__execute-command` and `mcp__arxiv-mcp-server__search_papers`.
+> Server names must be exact: `"ssh-mcp-server"` and `"arxiv-mcp-server"`.
 
-> **Optional MCP servers**: [Google Scholar](https://github.com/JackKuo666/Google-Scholar-MCP-Server) (academic search), [Codex](https://github.com/openai/codex) (GPT-5.4 cross-review), [Lark](https://github.com/larksuite/lark-openapi-mcp)/[Feishu](https://github.com/cso1z/Feishu-MCP) (cloud sync), [bioRxiv](https://github.com/JackKuo666/bioRxiv-MCP-Server) (biology preprints), [Playwright](https://github.com/microsoft/playwright-mcp) (web browsing). See [MCP Servers Guide](docs/mcp-servers.md).
+#### 3. Configure GPU Server
 
-### 4. Run
+Create `config.yaml` at project root (git-ignored):
+
+```yaml
+ssh_server: "default"
+remote_base: "/home/user/sibyl_system"
+max_gpus: 4
+```
+
+#### 4. Run
 
 ```bash
-# Launch Claude Code with Sibyl plugin
 claude --plugin-dir ./plugin
 
 # Inside Claude Code:
-/sibyl-research:init              # Interactive project setup → generates spec.md
-/sibyl-research:start <project>   # Start fully autonomous research loop
+/sibyl-research:init              # Create a research project
+/sibyl-research:start <project>   # Start autonomous research loop
 ```
 
-The system will autonomously: search literature → debate ideas → plan & run GPU experiments → analyze results → write paper → review & iterate → until quality gate passes.
+</details>
 
-### 5. Monitor
-
-```bash
-/sibyl-research:status            # View all project progress
-/sibyl-research:debug <project>   # Single-step mode for debugging
-```
-
-> **Full walkthrough**: [Getting Started Guide](docs/getting-started.md) · **All config options**: [Configuration Reference](docs/configuration.md) · **GPU setup**: [SSH & GPU Guide](docs/ssh-gpu-setup.md) · **All 12 commands**: [Plugin Commands](docs/plugin-commands.md)
+> **Docs**: [Full Setup Guide](docs/setup-guide.md) · [Configuration (35+ options)](docs/configuration.md) · [MCP Servers](docs/mcp-servers.md) · [SSH & GPU](docs/ssh-gpu-setup.md) · [All 12 Commands](docs/plugin-commands.md)
 
 ---
 
@@ -322,6 +315,7 @@ workspaces/<project>/
 
 | Document | Description |
 |----------|-------------|
+| [Setup Guide](docs/setup-guide.md) | Claude-readable setup checklist (recommended) |
 | [Getting Started](docs/getting-started.md) | Full installation and first-run guide |
 | [Configuration](docs/configuration.md) | All 35+ config options reference |
 | [MCP Servers](docs/mcp-servers.md) | Third-party MCP dependencies & setup |

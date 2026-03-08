@@ -23,55 +23,48 @@ Sibyl 真正的独特之处在于其**双循环架构**：
 
 ---
 
-## 5 分钟快速上手
+## 快速上手
 
-### 1. 安装
+### 推荐：让 Claude 自动配置
+
+最快的上手方式是让 Claude Code 帮你完成全部配置。克隆仓库，在 Claude Code 中打开，然后一句话搞定：
 
 ```bash
 git clone https://github.com/Sibyl-Research/sibyl-research-system.git
 cd sibyl-research-system
-chmod +x setup.sh && ./setup.sh
+claude --plugin-dir ./plugin
 ```
 
-### 2. 配置
+然后告诉 Claude：
 
-设置 API Key 和 GPU 服务器：
+> **"帮我配置 Sibyl System，读取 docs/setup-guide.md 然后自动配置所有环境。"**
+
+Claude 会自动检测你的环境、安装依赖、配置 MCP 服务器、创建配置文件，只在检测不到的信息（GPU 服务器 IP、用户名等）时询问你。[配置指南](docs/setup-guide.md)是一份专为 Claude 设计的分步检查清单。
+
+### 手动配置
+
+<details>
+<summary>点击展开手动配置步骤</summary>
+
+#### 环境要求
+
+- Python 3.12+、Node.js 18+
+- [Claude Code CLI](https://docs.anthropic.com/en/docs/claude-code)
+- 可 SSH 访问的 GPU 服务器
+- `ANTHROPIC_API_KEY` 环境变量
+- `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` 环境变量
+
+#### 1. 安装
 
 ```bash
-# 必需环境变量（添加到 ~/.zshrc 或 ~/.bashrc）
-export ANTHROPIC_API_KEY="sk-ant-..."
-export CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1
+git clone https://github.com/Sibyl-Research/sibyl-research-system.git
+cd sibyl-research-system
+chmod +x setup.sh && ./setup.sh    # 交互式：创建 venv、安装依赖、配置 MCP
 ```
 
-配置 GPU 服务器的 SSH 访问（如已配置可跳过）：
+#### 2. 配置 MCP 服务器
 
-```bash
-# 添加到 ~/.ssh/config
-Host my-gpu-box
-    HostName 192.168.1.100
-    User your-username
-    IdentityFile ~/.ssh/id_ed25519
-    ServerAliveInterval 60
-
-# 验证连接
-ssh my-gpu-box "nvidia-smi"
-```
-
-创建根目录配置文件（不提交到 Git，设置本机全局默认值）：
-
-```yaml
-# config.yaml（项目根目录）
-ssh_server: "my-gpu-box"           # 必须和 ~/.ssh/config 中的 Host 一致
-remote_base: "/home/user/sibyl"    # 服务器上的基础目录
-max_gpus: 4                        # 使用的 GPU 数量
-language: zh                       # 中文模式（默认英文）
-```
-
-> 项目级覆盖配置放在 `workspaces/<project>/config.yaml`。详见[配置参考](docs/configuration.md)了解全部 35+ 配置项。
-
-### 3. 配置 MCP 服务器
-
-`setup.sh` 会自动创建 `~/.mcp.json` 并配置好两个必需的服务器。如需手动配置：
+需要两个 MCP 服务器。`setup.sh` 会交互式配置，也可手动添加到 `~/.mcp.json`：
 
 ```json
 {
@@ -79,8 +72,7 @@ language: zh                       # 中文模式（默认英文）
     "ssh-mcp-server": {
       "command": "npx",
       "args": ["-y", "@fangjunjie/ssh-mcp-server",
-               "--host", "你的GPU服务器IP",
-               "--port", "22",
+               "--host", "你的GPU服务器IP", "--port", "22",
                "--username", "你的用户名",
                "--privateKey", "~/.ssh/id_ed25519"]
     },
@@ -92,31 +84,32 @@ language: zh                       # 中文模式（默认英文）
 }
 ```
 
-> **重要**: 服务器名称 `"ssh-mcp-server"` 和 `"arxiv-mcp-server"` 必须完全一致 — Agent prompt 中引用的工具名为 `mcp__ssh-mcp-server__execute-command` 和 `mcp__arxiv-mcp-server__search_papers`。
+> 服务器名称必须完全一致：`"ssh-mcp-server"` 和 `"arxiv-mcp-server"`。
 
-> **可选 MCP 服务器**：[Google Scholar](https://github.com/JackKuo666/Google-Scholar-MCP-Server)（学术搜索）、[Codex](https://github.com/openai/codex)（GPT-5.4 交叉审查）、[Lark](https://github.com/larksuite/lark-openapi-mcp)/[飞书](https://github.com/cso1z/Feishu-MCP)（云端同步）、[bioRxiv](https://github.com/JackKuo666/bioRxiv-MCP-Server)（生物预印本）、[Playwright](https://github.com/microsoft/playwright-mcp)（网页浏览）。详见 [MCP 服务器指南](docs/mcp-servers.md)。
+#### 3. 配置 GPU 服务器
 
-### 4. 运行
+在项目根目录创建 `config.yaml`（不提交到 Git）：
+
+```yaml
+ssh_server: "default"
+remote_base: "/home/user/sibyl_system"
+max_gpus: 4
+language: zh                       # 中文模式
+```
+
+#### 4. 运行
 
 ```bash
-# 加载 Sibyl 插件启动 Claude Code
 claude --plugin-dir ./plugin
 
 # 在 Claude Code 中：
-/sibyl-research:init              # 交互式创建研究项目 → 生成 spec.md
+/sibyl-research:init              # 创建研究项目
 /sibyl-research:start <project>   # 启动全自主研究循环
 ```
 
-系统将自主完成：文献检索 → 想法辩论 → 规划并执行 GPU 实验 → 结果分析 → 论文写作 → 评审迭代 → 直到通过质量门控。
+</details>
 
-### 5. 监控
-
-```bash
-/sibyl-research:status            # 查看所有项目进度
-/sibyl-research:debug <project>   # 单步调试模式
-```
-
-> **完整安装指南**：[快速上手](docs/getting-started.md) · **全部配置项**：[配置参考](docs/configuration.md) · **GPU 配置**：[SSH & GPU 指南](docs/ssh-gpu-setup.md) · **全部 12 个命令**：[插件命令](docs/plugin-commands.md)
+> **文档**：[完整配置指南](docs/setup-guide.md) · [配置参考 (35+ 选项)](docs/configuration.md) · [MCP 服务器](docs/mcp-servers.md) · [SSH & GPU](docs/ssh-gpu-setup.md) · [全部 12 个命令](docs/plugin-commands.md)
 
 ---
 
@@ -324,6 +317,7 @@ workspaces/<project>/
 
 | 文档 | 说明 |
 |------|------|
+| [配置指南](docs/setup-guide.md) | Claude 可读的配置检查清单（推荐） |
 | [快速上手](docs/getting-started.md) | 完整安装与首次运行指南 |
 | [配置参考](docs/configuration.md) | 全部 35+ 配置项参考 |
 | [MCP 服务](docs/mcp-servers.md) | 第三方 MCP 依赖安装与配置 |
