@@ -143,9 +143,9 @@ LOOP:
          1. 等待 experiment_monitor.poll_interval_sec 秒
          2. 用 SSH MCP execute-command 执行 check_cmd，解析 task_id:DONE/PENDING
          3. **打印状态面板（每次轮询必须执行）：**
-            调用 cli_experiment_status 获取富信息:
-            .venv/bin/python3 -c "from sibyl.orchestrate import cli_experiment_status; cli_experiment_status('WORKSPACE_PATH')"
-            将返回的 display 字段直接输出给用户，内容包含:
+            调用 cli_experiment_status 直接输出格式化面板（使用 display_only=True 避免 JSON 被折叠）:
+            .venv/bin/python3 -c "from sibyl.orchestrate import cli_experiment_status; cli_experiment_status('WORKSPACE_PATH', display_only=True)"
+            输出内容包含:
             - 进度条（已完成/总任务）
             - 运行中任务列表（任务名、GPU、已运行时间）
             - 排队任务数

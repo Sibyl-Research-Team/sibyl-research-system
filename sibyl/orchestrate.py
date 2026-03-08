@@ -1553,11 +1553,17 @@ def cli_checkpoint(workspace_path: str, stage: str, step_id: str):
     print(json.dumps({"status": "ok", "stage": stage, "step": step_id}))
 
 
-def cli_experiment_status(workspace_path: str = ""):
+def cli_experiment_status(workspace_path: str = "", display_only: bool = False):
     """CLI: Check experiment status with rich progress information.
 
     Combines monitor status, gpu_progress.json, and task_plan.json to
     produce a comprehensive status report for user display.
+
+    Args:
+        workspace_path: Path to the project workspace.
+        display_only: If True, print only the formatted display string
+            (human-readable panel) instead of JSON. This avoids the output
+            being collapsed in Claude Code's Bash UI.
 
     Output JSON includes:
         status, completed, running, pending, total,
@@ -1681,7 +1687,8 @@ def cli_experiment_status(workspace_path: str = ""):
     )
     lines.append("")
 
-    result["display"] = "\n".join(lines)
+    display_str = "\n".join(lines)
+    result["display"] = display_str
     result["completed_count"] = len(completed)
     result["running_count"] = len(running_ids)
     result["pending_count"] = pending_count
@@ -1689,7 +1696,10 @@ def cli_experiment_status(workspace_path: str = ""):
     result["elapsed_min"] = elapsed_min
     result["estimated_remaining_min"] = est_remaining_min
 
-    print(json.dumps(result, indent=2, ensure_ascii=False))
+    if display_only:
+        print(display_str)
+    else:
+        print(json.dumps(result, indent=2, ensure_ascii=False))
 
 
 def cli_dispatch_tasks(workspace_path: str):
