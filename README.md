@@ -23,23 +23,25 @@ graph TD
         direction LR
         subgraph iteration["🔄 研究迭代"]
             direction TB
-            lit["📚 文献调研"] --> idea["💡 创意辩论<br/><sub>6 Agent</sub>"]
-            idea --> plan["📋 实验规划"]
-            plan --> pilot["🧪 试点实验"]
-            pilot --> exp["⚡ 正式实验<br/><sub>GPU 并行</sub>"]
-            exp --> result["📊 结果辩论<br/><sub>6 Agent</sub>"]
-            result --> decision{"实验决策"}
-            decision -- "PIVOT" --> idea
+            lit["📚 文献调研<br/><sub>arXiv + Web 双源搜索</sub>"]
+            lit --> idea["💡 创意辩论<br/><sub>6 Agent 多视角辩论</sub>"]
+            idea --> plan["📋 实验规划<br/><sub>生成 task_plan.json</sub>"]
+            plan --> pilot["🧪 试点实验<br/><sub>小规模可行性验证</sub>"]
+            pilot --> exp["⚡ 正式实验<br/><sub>GPU 拓扑排序并行调度</sub>"]
+            exp --> result["📊 结果辩论<br/><sub>6 Agent 多视角分析</sub>"]
+            result --> decision{"🔀 实验决策"}
+            decision -- "PIVOT · 换方向" --> idea
         end
 
         subgraph writing["✍️ 论文撰写"]
             direction TB
-            outline["📝 大纲"] --> sections["✏️ 章节写作"]
-            sections --> critique["🔍 交叉评审<br/><sub>6 Agent</sub>"]
+            outline["📝 大纲撰写"]
+            outline --> sections["✏️ 章节写作<br/><sub>顺序 / 并行 / Codex</sub>"]
+            sections --> critique["🔍 交叉评审<br/><sub>6 Agent 章节批评</sub>"]
             critique --> integrate["📖 整合编辑"]
-            integrate --> final{"终审"}
-            final -- "不达标" --> integrate
-            final -- "达标" --> latex["📄 LaTeX"]
+            integrate --> final{"📋 终审<br/><sub>NeurIPS 级别</sub>"}
+            final -- "不达标 · ≤2轮" --> integrate
+            final -- "达标" --> latex["📄 LaTeX 排版<br/><sub>编译 PDF</sub>"]
         end
 
         iteration ~~~ writing
@@ -47,13 +49,13 @@ graph TD
 
     subgraph review["🔬 审稿反思"]
         direction LR
-        rev["👥 综合审稿<br/><sub>Critic + Supervisor + Codex</sub>"] --> reflect["💭 反思总结"] --> lark["☁️ 飞书同步"] --> gate{"质量门控"}
+        rev["👥 综合审稿<br/><sub>Critic + Supervisor + Codex 并行</sub>"] --> reflect["💭 反思总结<br/><sub>分类问题 · 记录教训</sub>"] --> lark["☁️ 飞书同步<br/><sub>云文档归档</sub>"] --> gate{"⭐ 质量门控"}
     end
 
-    decision -- "PROCEED" --> outline
+    decision -- "PROCEED · 继续" --> outline
     latex --> rev
-    gate -- "达标 ✅" --> done["🎉 完成"]
-    gate -- "未达标" --> lit
+    gate -- "≥8.0 分 & ≥2 轮 ✅" --> done["🎉 研究完成"]
+    gate -- "未达标 · 下一轮迭代" --> lit
 
     style row1 fill:none,stroke:none
     style iteration fill:#1a1a2e,stroke:#e94560,color:#fff
