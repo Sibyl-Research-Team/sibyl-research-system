@@ -11,3 +11,11 @@ workspaces/
 exp/
 logs/
 writing/
+
+# Misc temp files
+.history/
+cli_pause
+暂停
+进入
+连续失败
+重试一次
