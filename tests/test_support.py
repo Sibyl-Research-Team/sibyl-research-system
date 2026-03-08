@@ -162,9 +162,23 @@ class TestIssueCategory:
         assert IssueCategory.classify("Stage ordering issue") == IssueCategory.PIPELINE
         assert IssueCategory.classify("Missing step in pipeline") == IssueCategory.PIPELINE
 
-    def test_research_default(self):
-        assert IssueCategory.classify("Weak experiment design") == IssueCategory.RESEARCH
-        assert IssueCategory.classify("Something unknown") == IssueCategory.RESEARCH
+    def test_experiment_classification(self):
+        assert IssueCategory.classify("Weak experiment design") == IssueCategory.EXPERIMENT
+        assert IssueCategory.classify("Missing baseline comparison") == IssueCategory.EXPERIMENT
+
+    def test_writing_classification(self):
+        assert IssueCategory.classify("Paper writing clarity issues") == IssueCategory.WRITING
+        assert IssueCategory.classify("Section structure is poor") == IssueCategory.WRITING
+
+    def test_analysis_classification(self):
+        assert IssueCategory.classify("Insufficient statistical analysis") == IssueCategory.ANALYSIS
+        assert IssueCategory.classify("Cherry-pick results") == IssueCategory.ANALYSIS
+
+    def test_ideation_classification(self):
+        assert IssueCategory.classify("Idea lacks novelty") == IssueCategory.IDEATION
+
+    def test_default_is_analysis(self):
+        assert IssueCategory.classify("Something unknown") == IssueCategory.ANALYSIS
 
 
 class TestEvolutionEngine:
@@ -197,6 +211,8 @@ class TestEvolutionEngine:
         for _ in range(3):
             engine.record_outcome("proj", "reflection", ["test issue"], 5.0)
         written = engine.generate_lessons_overlay()
+        # "test issue" → ANALYSIS → agents: supervisor, critic, skeptic, reflection
+        assert "supervisor" in written
         assert "reflection" in written
 
     def test_reset_overlays(self, tmp_path, monkeypatch):
@@ -217,6 +233,49 @@ class TestEvolutionEngine:
         )
         outcomes = engine._load_outcomes()
         assert len(outcomes) == 1
+
+    def test_category_routes_to_agents(self, tmp_path, monkeypatch):
+        """Overlay files are named after agents, not stages."""
+        monkeypatch.setattr(EvolutionEngine, "EVOLUTION_DIR", tmp_path / "evo")
+        engine = EvolutionEngine()
+        # SSH issue → SYSTEM → experimenter, server_experimenter
+        for _ in range(3):
+            engine.record_outcome("proj", "reflection", ["SSH connection failed"], 4.0)
+        written = engine.generate_lessons_overlay()
+        assert "experimenter" in written
+        assert "server_experimenter" in written
+
+    def test_time_decay(self, tmp_path, monkeypatch):
+        """Old issues should have lower weighted frequency."""
+        monkeypatch.setattr(EvolutionEngine, "EVOLUTION_DIR", tmp_path / "evo")
+        engine = EvolutionEngine()
+        # Recent issues (default timestamp = now)
+        engine.record_outcome("proj", "reflection", ["recent issue"], 5.0)
+        engine.record_outcome("proj", "reflection", ["recent issue"], 5.0)
+        insights = engine.analyze_patterns()
+        assert len(insights) >= 1
+        # Weighted freq should be close to 2.0 (both recent)
+        assert insights[0].weighted_frequency > 1.5
+
+    def test_quality_trend(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(EvolutionEngine, "EVOLUTION_DIR", tmp_path / "evo")
+        engine = EvolutionEngine()
+        engine.record_outcome("proj", "reflection", [], 5.0)
+        engine.record_outcome("proj", "reflection", [], 7.0)
+        trend = engine.get_quality_trend(project="proj")
+        assert len(trend) == 2
+        assert trend[0]["score"] == 5.0
+        assert trend[1]["score"] == 7.0
+
+    def test_classified_issues_passthrough(self, tmp_path, monkeypatch):
+        """Pre-classified issues should be stored directly."""
+        monkeypatch.setattr(EvolutionEngine, "EVOLUTION_DIR", tmp_path / "evo")
+        engine = EvolutionEngine()
+        ci = [{"description": "weak writing", "category": "writing", "severity": "high"}]
+        engine.record_outcome("proj", "reflection", ["weak writing"], 5.0,
+                              classified_issues=ci)
+        outcomes = engine._load_outcomes()
+        assert outcomes[0]["classified_issues"][0]["category"] == "writing"
 
 
 # ══════════════════════════════════════════════
