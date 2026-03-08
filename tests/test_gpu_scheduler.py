@@ -515,10 +515,10 @@ class TestParseFreeGpus:
 
 class TestGpuPollWaitScript:
     def test_generates_bash_script(self):
-        script = gpu_poll_wait_script("gpu-server", [0, 1, 2, 3])
+        script = gpu_poll_wait_script("cs8000d", [0, 1, 2, 3])
         assert "#!/bin/bash" in script
         assert "nvidia-smi" in script
-        assert "gpu-server" in script
+        assert "cs8000d" in script
         assert "0,1,2,3" in script
 
     def test_infinite_poll_default(self):
@@ -664,7 +664,7 @@ class TestAggressiveMode:
 
     def test_poll_script_aggressive_mode(self):
         script = gpu_poll_wait_script(
-            ssh_server="gpu-server",
+            ssh_server="cs8000d",
             candidate_gpu_ids=[0, 1],
             aggressive_mode=True,
             aggressive_threshold_pct=25,
@@ -811,12 +811,12 @@ class TestGetBatchInfoCalibration:
 class TestExperimentMonitorScript:
     def test_generates_bash_script(self):
         script = experiment_monitor_script(
-            ssh_server="gpu-server",
+            ssh_server="cs8000d",
             remote_project_dir="/home/user/sibyl/projects/test",
             task_ids=["task_1a", "task_2a"],
         )
         assert "#!/bin/bash" in script
-        assert "gpu-server" in script
+        assert "cs8000d" in script
         assert "task_1a" in script
         assert "task_2a" in script
         assert "DONE" in script
