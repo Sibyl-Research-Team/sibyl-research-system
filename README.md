@@ -18,34 +18,36 @@ Sibyl 通过 **状态机编排器** 协调 20+ 个 AI Agent，自动完成文献
 ## 工作流程
 
 ```mermaid
-graph LR
-    subgraph iteration["🔄 研究迭代"]
-        direction TB
-        lit["📚 文献调研"] --> idea["💡 创意辩论<br/><sub>6 Agent</sub>"]
-        idea --> plan["📋 实验规划"]
-        plan --> pilot["🧪 试点实验"]
-        pilot --> exp["⚡ 正式实验<br/><sub>GPU 并行</sub>"]
-        exp --> result["📊 结果辩论<br/><sub>6 Agent</sub>"]
-        result --> decision{"实验决策"}
-        decision -- "PIVOT" --> idea
-    end
+graph TD
+    subgraph row1[" "]
+        direction LR
+        subgraph iteration["🔄 研究迭代"]
+            direction TB
+            lit["📚 文献调研"] --> idea["💡 创意辩论<br/><sub>6 Agent</sub>"]
+            idea --> plan["📋 实验规划"]
+            plan --> pilot["🧪 试点实验"]
+            pilot --> exp["⚡ 正式实验<br/><sub>GPU 并行</sub>"]
+            exp --> result["📊 结果辩论<br/><sub>6 Agent</sub>"]
+            result --> decision{"实验决策"}
+            decision -- "PIVOT" --> idea
+        end
 
-    subgraph writing["✍️ 论文撰写"]
-        direction TB
-        outline["📝 大纲"] --> sections["✏️ 章节写作"]
-        sections --> critique["🔍 交叉评审<br/><sub>6 Agent</sub>"]
-        critique --> integrate["📖 整合编辑"]
-        integrate --> final{"终审"}
-        final -- "不达标" --> integrate
-        final -- "达标" --> latex["📄 LaTeX"]
+        subgraph writing["✍️ 论文撰写"]
+            direction TB
+            outline["📝 大纲"] --> sections["✏️ 章节写作"]
+            sections --> critique["🔍 交叉评审<br/><sub>6 Agent</sub>"]
+            critique --> integrate["📖 整合编辑"]
+            integrate --> final{"终审"}
+            final -- "不达标" --> integrate
+            final -- "达标" --> latex["📄 LaTeX"]
+        end
+
+        iteration ~~~ writing
     end
 
     subgraph review["🔬 审稿反思"]
         direction LR
-        rev["👥 综合审稿<br/><sub>Critic+Supervisor+Codex</sub>"]
-        rev --> reflect["💭 反思总结"]
-        reflect --> lark["☁️ 飞书同步"]
-        lark --> gate{"质量门控"}
+        rev["👥 综合审稿<br/><sub>Critic + Supervisor + Codex</sub>"] --> reflect["💭 反思总结"] --> lark["☁️ 飞书同步"] --> gate{"质量门控"}
     end
 
     decision -- "PROCEED" --> outline
@@ -53,6 +55,7 @@ graph LR
     gate -- "达标 ✅" --> done["🎉 完成"]
     gate -- "未达标" --> lit
 
+    style row1 fill:none,stroke:none
     style iteration fill:#1a1a2e,stroke:#e94560,color:#fff
     style writing fill:#16213e,stroke:#0f3460,color:#fff
     style review fill:#0f3460,stroke:#533483,color:#fff
