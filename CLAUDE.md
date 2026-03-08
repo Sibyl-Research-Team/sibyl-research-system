@@ -25,7 +25,7 @@ python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
 
 ## 工作目录
 
-所有 Sibyl CLI 命令（`cli_next`, `cli_record` 等）必须在项目根目录下执行，因为 `from sibyl.xxx` 依赖包路径。
+所有 Sibyl CLI 命令（`cli_next`, `cli_record` 等）必须在项目根目录 `/Users/cwan0785/sibyl-system` 下执行，因为 `from sibyl.xxx` 依赖包路径。
 
 ## Agent 架构（context: fork Skills）
 

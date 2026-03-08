@@ -9,7 +9,7 @@ argument-hint: "[topic]"
 
 **所有用户可见的输出必须使用中文。**
 
-工作目录: `$SIBYL_ROOT`
+工作目录: `/Users/cwan0785/sibyl-system`
 
 ## 步骤
 
@@ -25,7 +25,7 @@ argument-hint: "[topic]"
    - 特殊需求
 3. 生成项目规格文件：
 ```bash
-cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_init_spec; cli_init_spec('PROJECT_NAME')"
+cd /Users/cwan0785/sibyl-system && .venv/bin/python3 -c "from sibyl.orchestrate import cli_init_spec; cli_init_spec('PROJECT_NAME')"
 ```
 4. 将收集的信息写入 `workspaces/PROJECT_NAME/spec.md`
 5. 告知用户检查并修改 spec.md，确认后用 `/sibyl-research:start` 启动

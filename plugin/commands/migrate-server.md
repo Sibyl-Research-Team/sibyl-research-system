@@ -13,7 +13,7 @@ argument-hint: "<project>"
 
 执行以下命令：
 ```bash
-cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_migrate_server; cli_migrate_server('$ARGUMENTS')"
+cd /Users/cwan0785/sibyl-system && .venv/bin/python3 -c "from sibyl.orchestrate import cli_migrate_server; cli_migrate_server('$ARGUMENTS')"
 ```
 
 返回的 commands 列表通过 `mcp__ssh-mcp-server__execute-command` 依次执行。

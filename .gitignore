@@ -12,15 +12,6 @@ exp/
 logs/
 writing/
 
-# Sensitive files
-user_token_cache.json
-*.secret
-.env
-.env.*
-
-# Playwright MCP logs (may contain internal API URLs)
-.playwright-mcp/
-
 # Misc temp files
 .history/
 cli_pause

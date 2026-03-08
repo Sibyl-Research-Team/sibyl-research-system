@@ -216,7 +216,7 @@ claude --plugin-dir /path/to/sibyl-system/plugin
 
 实验执行依赖 SSH 连接到 GPU 服务器。需要配置 [SSH MCP Server](https://github.com/anthropics/claude-code)：
 
-1. 确保 `~/.ssh/config` 中配置了目标服务器（如 `Host gpu-server`）
+1. 确保 `~/.ssh/config` 中配置了目标服务器（如 `Host cs8000d`）
 2. 在项目的 `config.yaml` 中设置：
 
 ```yaml
