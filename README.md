@@ -8,13 +8,18 @@
 
 [中文文档](README_CN.md)
 
-Sibyl is a **fully automated scientific discovery system** that autonomously drives ML research from literature survey to paper submission — and **evolves itself** by learning from every iteration. Unlike systems that merely assist human researchers, Sibyl operates as an **autonomous research organization**: 20+ specialized AI agents debate ideas, design and run GPU experiments, write papers, and critically review their own work, all without human intervention.
+Sibyl is a **fully automated scientific discovery system** that autonomously drives ML research from literature survey to paper submission. It operates as an **autonomous research organization**: 20+ specialized AI agents debate ideas, design and run GPU experiments, write papers, and critically review their own work — all without human intervention.
+
+What truly sets Sibyl apart is its **dual-loop architecture**:
+
+- **Inner Loop — Research Iteration**: Each project automatically iterates across every dimension — refining hypotheses based on experiment results, re-planning experiments, rewriting papers, pivoting to alternative ideas when needed — until quality meets publication standards.
+- **Outer Loop — System Self-Evolution**: Sibyl learns from the research process itself. After every iteration, it classifies issues across 8 categories, tracks which lessons actually improve outcomes, and automatically updates its own agent prompts, scheduling strategies, and architectural patterns. **The system that runs your research is itself getting better at running research.**
 
 ### What Makes Sibyl Different?
 
-- **Claude Code Native** — Not a wrapper around API calls. Built directly on Claude Code's architecture (fork skills, agent teams, MCP tools), inheriting its full ecosystem: SSH remote execution, Playwright browser automation, Feishu/Lark cloud sync, and more.
-- **Self-Evolving** — The system learns from its own research iterations. It classifies issues, tracks lesson effectiveness, deprioritizes what doesn't work, and automatically injects proven improvements into agent prompts. Each project makes the system smarter.
-- **Fully Autonomous Loop** — Start a research topic, walk away. Sibyl handles literature search, multi-perspective idea debate, experiment planning, GPU-parallel execution, result analysis, paper writing, peer-level review, and quality-gated iteration — looping until the research meets publication standards.
+- **Autonomous Multi-Dimensional Iteration** — Not just "run experiments and write a paper." Every aspect of the research improves automatically across iterations: ideas sharpen through multi-agent debate, experiments expand with better baselines and ablations, writing tightens under 6-agent cross-review, and resource utilization optimizes through GPU scheduling feedback. The quality gate decides when to stop or pivot — no human in the loop.
+- **Self-Evolving System** — Most AI research tools are static — they run the same way every time. Sibyl evolves. It extracts lessons from every research iteration (issues, success patterns, efficiency metrics), evaluates their effectiveness over time, and injects proven improvements back into agent prompts. Ineffective lessons are automatically deprioritized. Across projects, the system accumulates institutional knowledge — each project makes every future project better.
+- **Claude Code Native** — Not a wrapper around API calls. Built directly on Claude Code's architecture (fork skills, agent teams, MCP tools), inheriting its full ecosystem: SSH remote execution, multi-model collaboration (Claude + GPT-5.4 cross-review), Feishu/Lark cloud sync, and more.
 
 ---
 
@@ -28,9 +33,9 @@ Sibyl orchestrates 20+ AI agents through a **19-stage state-machine pipeline**, 
 
 - **19-Stage Research Pipeline**: End-to-end automation from literature search to camera-ready paper
 - **Multi-Agent Collaboration**: 6-agent debate for idea generation, 6-agent result analysis, 6-agent parallel writing
-- **GPU-Parallel Scheduling**: Topological sort + greedy assignment, automatic task dependency and GPU resource management
-- **Iterative Optimization Loop**: Quality gate auto-decides whether to continue iterating or terminate, with PIVOT mechanism to switch research directions
-- **Cross-Project Self-Evolution**: Automatically extracts lessons, tracks effectiveness, generates agent prompt improvements
+- **GPU-Parallel Scheduling**: Topological sort + dynamic dispatch, maximizing GPU utilization with automatic task dependency management
+- **Autonomous Iterative Optimization**: Quality gate auto-decides whether to continue iterating, pivot to new ideas, or terminate — every dimension of research improves across iterations
+- **Self-Evolving System**: Automatically extracts lessons across 8 categories, tracks effectiveness, prunes what doesn't work, and updates agent prompts — the system improves itself with every project
 - **Multi-Model Collaboration**: Claude Opus/Sonnet + GPT-5.4 (Codex) independent cross-review
 
 ## Pipeline
@@ -134,31 +139,36 @@ Sibyl orchestrates 20+ AI agents through a **19-stage state-machine pipeline**, 
 
 ## Self-Evolution System
 
-Sibyl automatically learns from every research iteration, creating a feedback loop that continuously improves system performance:
+Sibyl doesn't just run research — it learns how to run research better. After every iteration, the system analyzes what worked, what failed, and what was inefficient, then automatically updates itself:
 
 ```
-Research Iteration
+Research Iteration completes
        |
        v
-  Reflection Agent ──> Record outcome (issues + score + success patterns)
-       |
+  Reflection Agent ──> Analyze outcomes across 8 dimensions
+       |                    ├── Experiment design quality
+       |                    ├── Writing clarity & structure
+       |                    ├── Resource efficiency (GPU utilization, scheduling)
+       |                    ├── Idea novelty & contribution
+       |                    └── System reliability, analysis depth, planning, pipeline
        v
-  Evolution Engine ──> Classify issues (7 categories)
-       |                    ├── Time-weighted frequency analysis
-       |                    ├── Effectiveness tracking (early vs late scores)
-       |                    └── Success pattern extraction
+  Evolution Engine ──> Track & evaluate lessons
+       |                    ├── Time-weighted frequency analysis (30-day half-life)
+       |                    ├── Effectiveness scoring (early vs late iteration comparison)
+       |                    └── Success pattern extraction (what to keep doing)
        v
-  Generate Overlays ──> Inject proven lessons into agent prompts
-       |                    ├── Effective lessons: boosted priority
-       |                    └── Ineffective lessons: 0.3x deprioritized
+  Auto-Update ──> Inject proven improvements into agent prompts
+       |              ├── Effective lessons: boosted priority
+       |              ├── Ineffective lessons: 0.3x deprioritized (auto-pruned)
+       |              └── Efficiency insights: scheduling & resource optimization
        v
-  Self-Check ──> Detect anomalies
-                    ├── Declining quality trend
-                    ├── Recurring system errors
+  Self-Check ──> Detect systemic anomalies
+                    ├── Declining quality trend across iterations
+                    ├── Recurring errors that lessons haven't fixed
                     └── Ineffective lesson accumulation
 ```
 
-**Issue Categories**: SYSTEM, EXPERIMENT, WRITING, ANALYSIS, PLANNING, PIPELINE, IDEATION — each routed to the relevant agents for targeted improvement.
+**8 Issue Categories**: SYSTEM, EXPERIMENT, WRITING, ANALYSIS, PLANNING, PIPELINE, IDEATION, EFFICIENCY — each automatically routed to the relevant agents. The planner learns to design better experiments, the experimenter learns to use GPUs more efficiently, the writer learns to avoid recurring style issues — all without manual intervention.
 
 ## Project Structure
 
@@ -298,13 +308,14 @@ The experiment stage reads `task_plan.json`, topologically sorts tasks by depend
 
 ### Cross-Project Self-Evolution
 
-The system automatically extracts lessons from each iteration, tracks effectiveness, and injects verified improvements into agent prompts:
+Lessons learned in one project automatically improve all future projects:
 
-1. **Record**: After each reflection, classify issues (7 categories) and success patterns
-2. **Analyze**: Aggregate frequency with time decay (30-day half-life)
-3. **Evaluate**: Compare early vs late scores, mark lesson effectiveness (requires >= 4 occurrences)
-4. **Apply**: Generate agent-specific prompt overlays; ineffective lessons deprioritized (x0.3)
-5. **Self-Check**: Detect quality decline, recurring errors, and ineffective lesson accumulation
+1. **Record**: Classify issues (8 categories) and success patterns after each iteration
+2. **Analyze**: Aggregate with time-decay weighting (30-day half-life) — recent lessons matter more
+3. **Evaluate**: Compare early vs late scores to verify whether lessons actually helped (requires >= 4 occurrences)
+4. **Apply**: Generate per-agent prompt overlays — each agent receives only the lessons relevant to its role
+5. **Prune**: Ineffective lessons are automatically deprioritized (x0.3), preventing bad advice from persisting
+6. **Self-Check**: Detect quality decline, recurring unresolved errors, and ineffective lesson accumulation
 
 ### PIVOT Mechanism
 
