@@ -95,10 +95,15 @@ LOOP:
 
        **实验监控（experiment_monitor）：**
        如果 action 包含 experiment_monitor 字段，在启动实验 skill 的同时：
+       **SSH MCP 模式（推荐，沙盒环境兼容）：**
+       1. 每隔 poll_interval_sec 秒，用 SSH MCP execute-command 执行 check_cmd
+       2. 解析输出中的 `task_id:DONE` / `task_id:PENDING` 状态
+       3. 所有任务 DONE 或超时后，将状态写入 marker_file
+       4. 也可用 `ps aux | grep task_id` 检查远程进程是否仍在运行
+       **Bash 直连模式（需要直接 SSH 访问）：**
        1. 将 experiment_monitor.script 写入 /tmp/sibyl_exp_monitor.sh
-       2. 使用 Bash 工具后台执行: `bash /tmp/sibyl_exp_monitor.sh &`（run_in_background）
+       2. 使用 Bash 工具后台执行: `bash /tmp/sibyl_exp_monitor.sh &`
        3. 监控脚本定期 SSH 检查 DONE 标记文件，进度写入 marker_file
-       4. 实验超时时读取 marker_file 检查实际完成情况
      "agents_parallel": 并行启动多个 agent（如 cross-critique 的 6 个动态 prompt agent）。
        对 agents 列表中的每个 agent，使用 Agent 工具并行启动。
      "team": 使用 Agent Team 进行结构化多 agent 协作讨论。
