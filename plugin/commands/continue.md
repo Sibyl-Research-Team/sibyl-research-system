@@ -15,8 +15,29 @@ argument-hint: "<project>"
 
 ## 步骤
 
-1. 查看项目状态：
+1. **读取 breadcrumb 恢复上下文**：
+   读取 `workspaces/$ARGUMENTS/breadcrumb.json`，了解中断前的状态：
+   - `stage`: 当前所在阶段
+   - `action_type`: 中断前正在执行的操作类型
+   - `in_loop`: 是否在轮询循环中（experiment_wait / gpu_poll）
+   - `loop_type`: 循环类型（用于恢复轮询）
+   - `iteration`: 当前迭代编号
+   - `description`: 操作描述
+
+2. **查看项目状态**：
 ```bash
 cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_status; cli_status('workspaces/$ARGUMENTS')"
 ```
-2. 进入编排循环继续执行（参考 `/sibyl-research:start` 中的编排循环说明）
+
+3. **更新 Session ID 供 Sentinel 使用**：
+   ```bash
+   cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_sentinel_session; cli_sentinel_session('workspaces/$ARGUMENTS', '${CLAUDE_CODE_SESSION_ID:-}')"
+   ```
+
+4. **读取编排循环定义**：
+   读取 `plugin/commands/_orchestration-loop.md` 获取完整的 CLI API 参考、进度追踪和编排循环定义。
+
+5. **进入编排循环**：
+   按 `_orchestration-loop.md` 中的 LOOP 流程执行，将所有 `WORKSPACE_PATH` 替换为 `workspaces/$ARGUMENTS`。
+
+   如果 breadcrumb 显示 `in_loop == true`（中断前在轮询循环中），直接调用 `cli_next` 获取最新状态并恢复轮询，不需要重新执行已完成的阶段。
