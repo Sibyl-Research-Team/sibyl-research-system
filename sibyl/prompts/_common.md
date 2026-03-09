@@ -89,11 +89,12 @@ All research outputs are stored in the shared workspace directory. Use Read and 
 - **Write files**: Use `Write` tool with absolute path
 - **Find files**: Use `Glob` tool
 
-## Model Selection
+## Model Selection & Experiment Time Budget
 
 - Use small models for experiments: GPT-2, BERT-base, Qwen/Qwen2-0.5B
 - Ensure single-GPU compatibility
 - Set random seeds for reproducibility
+- **Time budget**: Target ≤60 min per experiment task, ≤15 min for pilots. Design scale (model size, data subset, epochs) to fit this budget. If project `spec.md` or `config.yaml` specifies a different budget, follow it.
 
 ## Remote Server Conventions
 

@@ -22,7 +22,7 @@ The 6 perspectives are:
 Tasks:
 1. Map the landscape: identify agreements, conflicts, and complementary insights across all 6 perspectives
 2. Rank ideas by novelty + feasibility + impact, giving extra weight to ideas that survived the contrarian's challenges
-3. Select the best idea (or merge complementary ones) — if merging, explain what each perspective contributes
+3. Select the best idea (or merge complementary ones) — if merging, explain what each perspective contributes. Favor designs where individual experiments complete in ≤1 hour for rapid iteration (unless the project spec explicitly allows longer runs)
 4. Address the most critical concerns raised in critiques, especially the contrarian's and empiricist's objections
 5. Incorporate the empiricist's evaluation methodology and the interdisciplinary insights where they strengthen the proposal
 6. Write the final proposal

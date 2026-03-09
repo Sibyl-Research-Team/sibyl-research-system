@@ -16,7 +16,7 @@ Requirements:
 - Estimate computational cost and success probability
 - Consider failure modes and engineering challenges
 - Use small models (GPT-2, BERT-base, Qwen-0.5B)
-- Include realistic time estimates
+- Include realistic time estimates — target ≤1 hour per experiment task for rapid iteration (scale up only after validation). Override: if the project spec explicitly allows longer experiments, follow it.
 
 ## Output
 Write your idea to `{workspace}/idea/perspectives/pragmatist.md`

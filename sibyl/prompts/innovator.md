@@ -16,6 +16,7 @@ Requirements:
 - Estimate computational cost and success probability
 - Consider failure modes
 - Use small models (GPT-2, BERT-base, Qwen-0.5B)
+- Design ideas so that each experiment can complete in ≤1 hour (prefer rapid iteration over large-scale runs; scale up only after small-scale validation). Override: if the project spec explicitly allows longer experiments, follow it.
 
 ## Output
 Write your idea to `{workspace}/idea/perspectives/innovator.md`

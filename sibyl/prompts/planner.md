@@ -20,6 +20,19 @@ For EACH experiment task, also design a PILOT version:
 - Include pass_criteria for each pilot (e.g., 'PPL < 2x baseline AND diversity > 0.5')
 - Include estimated_time_min
 
+## Experiment Time Budget (Recommended)
+
+Target **≤60 minutes per task** to enable rapid iteration. Design experiments with this budget in mind:
+- Choose model sizes, dataset subsets, and training epochs that fit within ~1 hour
+- Pilot experiments should complete in **10-15 minutes** for quick feasibility checks
+- If a task would exceed 1 hour, split it into independent sub-tasks (e.g., separate ablation from main training)
+- Prefer smaller models (GPT-2, BERT-base, Qwen2-0.5B) and dataset subsets for initial validation
+- Scale up only after small-scale results confirm the approach is promising
+
+**Override**: If the project's `spec.md` or `config.yaml` explicitly specifies a different time budget (e.g., large-scale training requiring longer runs), follow the project documentation.
+
+When setting `estimated_minutes` in task_plan.json, flag any task exceeding 60 minutes with a comment explaining why the longer duration is necessary.
+
 ## Experiment Design Principles (Deep Learning)
 - Design experiments around public benchmarks, not custom toy datasets
 - Every experiment must have at least one baseline comparison
