@@ -76,6 +76,41 @@ Sibyl-Test-User/ (FNmTflC2blA5OddeZHbc70OXnMc)
      - [ ] 团队通知
 2. 每完成一个 Step，使用 `TaskUpdate` 标记对应条目完成
 
+## Pre-Flight: Lock Acquisition
+
+在同步前，获取锁以防止并发同步操作：
+
+1. 检查 `{workspace}/lark_sync/sync.lock` 是否存在
+2. 如果锁存在：
+   - 读取锁文件，检查 `started_at`
+   - 如果超过 10 分钟 → 过期，接管（删除并重建）
+   - 如果未过期 → 等待 10 秒，重新检查（最多 30 次 = 5 分钟）
+   - 如果 5 分钟后仍被锁定 → 中止，将错误写入 `sync_status.json`
+3. 创建 `sync.lock`，内容：`{"pid": <process_id>, "started_at": "<ISO timestamp>", "stage": "<trigger_stage>"}`
+4. 所有后续步骤必须包裹在 try/finally 中以确保锁释放
+
+## Post-Sync: 结果记录
+
+同步完成后（无论成功或失败）：
+
+### 成功时：
+1. 读取当前 `sync_status.json`（或创建空 `{"history": []}`）
+2. 统计 `pending_sync.jsonl` 行数以确定 `last_synced_line`
+3. 追加到 history：`{"at": "<ISO>", "success": true, "stages_synced": [...], "duration_sec": N}`
+4. 更新 `last_sync_at`, `last_sync_success: true`, `last_synced_line`, `last_trigger_stage`
+5. 写入更新后的 `sync_status.json`
+6. 删除 `sync.lock`
+7. 报告："Feishu sync completed successfully for stages: [...]"
+
+### 失败时：
+1. 将错误写入 `{workspace}/logs/errors.jsonl`（ErrorCollector 格式）：
+   ```json
+   {"error_type": "<exception>", "category": "config", "message": "<error>", "context": {"source": "lark_sync", "stage": "<stage>"}}
+   ```
+2. 更新 `sync_status.json`，设 `last_sync_success: false` 并在 history 中记录错误
+3. 删除 `sync.lock`
+4. 报告："Feishu sync FAILED: <error message>"
+
 ## 执行流程
 
 ### Step 1: 读取项目状态和 registry

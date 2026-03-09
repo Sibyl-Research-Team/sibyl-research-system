@@ -53,8 +53,10 @@ Add to `~/.mcp.json`:
 ### 5. Enable in Config
 
 ```yaml
-codex_enabled: true    # Default: true
+codex_enabled: true    # Default: false (opt-in after Codex MCP is configured)
 ```
+
+For your own local machine, once Codex MCP and `OPENAI_API_KEY` are working, it is recommended to enable `codex_enabled: true` in your local `config.yaml`. That file lives in your working tree, but Git does not track or commit it, so your machine can default to Codex without changing the repo-wide default.
 
 ## How It Works
 

@@ -4,14 +4,51 @@ Provides auxiliary commands for status, evolution, and sync.
 The primary workflow runs through Claude Code's /sibyl-start skill.
 """
 import argparse
+import os
+import sys
+from pathlib import Path
 
 from rich.console import Console
+from sibyl._paths import REPO_ROOT
 from sibyl.config import Config
 
 console = Console()
+_REEXEC_ENV_VAR = "SIBYL_REEXEC_WITH_REPO_VENV"
+
+
+def ensure_repo_venv_python() -> None:
+    """Re-exec the CLI under the repo-local virtualenv when needed."""
+    repo_venv = REPO_ROOT / ".venv"
+    target_python = repo_venv / "bin" / "python"
+
+    if Path(sys.prefix).resolve() == repo_venv.resolve():
+        return
+
+    if os.environ.get(_REEXEC_ENV_VAR) == "1":
+        raise SystemExit(
+            "Sibyl re-exec into the repo virtualenv did not take effect. "
+            f"Expected sys.prefix={repo_venv}, got {sys.prefix!r} "
+            f"(current executable: {sys.executable})."
+        )
+
+    if not target_python.exists():
+        raise SystemExit(
+            "Sibyl must run from the repo virtualenv, but the interpreter was not found at "
+            f"{target_python}. Create it with `python3 -m venv .venv && .venv/bin/pip install -e .`."
+        )
+
+    env = os.environ.copy()
+    env[_REEXEC_ENV_VAR] = "1"
+    os.execve(
+        str(target_python),
+        [str(target_python), "-m", "sibyl.cli", *sys.argv[1:]],
+        env,
+    )
 
 
 def main():
+    ensure_repo_venv_python()
+
     parser = argparse.ArgumentParser(
         description="Sibyl Research System - 西比拉自动化研究系统 (Claude Code Native)",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -38,7 +75,25 @@ Auxiliary commands:
     evolve_p.add_argument("--reset", action="store_true", help="Remove all overlay files")
     evolve_p.add_argument("--show", action="store_true", help="Show current overlay contents")
 
+    # --- internal control-plane helpers ---
+    dispatch_p = sub.add_parser("dispatch", help="Internal dynamic-dispatch helper")
+    dispatch_p.add_argument("workspace", help="Workspace path")
+
+    self_heal_p = sub.add_parser("self-heal-scan", help="Internal self-heal scan helper")
+    self_heal_p.add_argument("workspace", nargs="?", default=None, help="Workspace path")
+
     args = parser.parse_args()
+
+    if args.command == "dispatch":
+        from sibyl.orchestrate import cli_dispatch_tasks
+        cli_dispatch_tasks(args.workspace)
+        return
+
+    if args.command == "self-heal-scan":
+        from sibyl.orchestrate import cli_self_heal_scan
+        cli_self_heal_scan(args.workspace)
+        return
+
     config = Config()
     if hasattr(args, "config") and args.config:
         config = Config.from_yaml(args.config)

@@ -9,7 +9,7 @@ allowed-tools: Read, Write, Glob, Grep, Bash, WebSearch, WebFetch, mcp__arxiv-mc
 
 !`.venv/bin/python3 -c "from sibyl.orchestrate import load_prompt, load_common_prompt; print(load_common_prompt()); print('---'); print(load_prompt('interdisciplinary'))"`
 
-Topic: $ARGUMENTS[0]
-Workspace path: $ARGUMENTS[1]
+Workspace path: $ARGUMENTS[0]
+Topic (may contain spaces): $ARGUMENTS[1]
 
-Write your output to $ARGUMENTS[1]/idea/perspectives/interdisciplinary.md
+Write your output to $ARGUMENTS[0]/idea/perspectives/interdisciplinary.md

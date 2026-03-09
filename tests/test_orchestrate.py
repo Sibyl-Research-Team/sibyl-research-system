@@ -1,6 +1,7 @@
 """Tests for sibyl.orchestrate module."""
 import json
 import shlex
+import sys
 from pathlib import Path
 
 import pytest
@@ -8,7 +9,7 @@ import pytest
 from sibyl.orchestrate import (
     FarsOrchestrator, load_prompt, load_common_prompt,
     PAPER_SECTIONS, cli_checkpoint, cli_dispatch_tasks,
-    project_marker_file,
+    project_marker_file, self_heal_monitor_script,
     cli_experiment_status,
 )
 from sibyl.workspace import Workspace
@@ -60,76 +61,22 @@ class TestStageTransitions:
                 f"After recording {stage}, expected {expected} but got {actual}"
             )
 
-    def test_reflection_to_lark_sync_when_enabled(self, make_orchestrator):
+    def test_reflection_goes_to_quality_gate(self, make_orchestrator):
+        """Without lark_sync stage, reflection goes directly to quality_gate."""
         o = make_orchestrator(stage="reflection", lark_enabled=True)
         o.record_result("reflection")
-        assert o.ws.get_status().stage == "lark_sync"
+        assert o.ws.get_status().stage == "quality_gate"
 
-    def test_reflection_skips_lark_when_disabled(self, make_orchestrator):
+    def test_reflection_to_quality_gate_lark_disabled(self, make_orchestrator):
         o = make_orchestrator(stage="reflection", lark_enabled=False)
         o.record_result("reflection")
         assert o.ws.get_status().stage == "quality_gate"
 
-    def test_per_stage_lark_sync_interleaving(self, make_orchestrator):
-        """When lark_enabled, every stage goes to lark_sync first, then resumes."""
+    def test_stages_advance_directly_without_lark_sync(self, make_orchestrator):
+        """Stages advance directly without interleaved lark_sync."""
         o = make_orchestrator(stage="literature_search", lark_enabled=True)
         o.record_result("literature_search")
-        status = o.ws.get_status()
-        assert status.stage == "lark_sync"
-        assert status.resume_after_sync == "idea_debate"
-
-        # Complete lark_sync → resumes to idea_debate
-        o.record_result("lark_sync")
-        status = o.ws.get_status()
-        assert status.stage == "idea_debate"
-        assert status.resume_after_sync == ""
-
-    def test_lark_sync_not_interleaved_for_experiment_loop(self, make_orchestrator):
-        """When experiment stage loops back to itself, no lark_sync."""
-        o = make_orchestrator(stage="pilot_experiments", lark_enabled=True,
-                              gpu_poll_enabled=False)
-        tasks = [
-            {"id": "a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
-            {"id": "b", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
-        ]
-        o.ws.write_file("plan/task_plan.json", json.dumps({"tasks": tasks}))
-        o.ws.write_file("exp/gpu_progress.json", json.dumps({
-            "completed": ["a"], "failed": []
-        }))
-        o.record_result("pilot_experiments")
-        # Still more batches → stays in pilot_experiments, no sync
-        assert o.ws.get_status().stage == "pilot_experiments"
-
-    def test_lark_sync_after_all_experiments_done(self, make_orchestrator):
-        """When all experiments done, goes to lark_sync before next stage."""
-        o = make_orchestrator(stage="pilot_experiments", lark_enabled=True,
-                              gpu_poll_enabled=False)
-        tasks = [{"id": "a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10}]
-        o.ws.write_file("plan/task_plan.json", json.dumps({"tasks": tasks}))
-        o.ws.write_file("exp/gpu_progress.json", json.dumps({
-            "completed": ["a"], "failed": []
-        }))
-        o.record_result("pilot_experiments")
-        status = o.ws.get_status()
-        assert status.stage == "lark_sync"
-        assert status.resume_after_sync == "experiment_cycle"
-
-    def test_reflection_natural_next_is_lark_sync_no_double(self, make_orchestrator):
-        """Reflection's natural next is lark_sync (pipeline position), no interleaving."""
-        o = make_orchestrator(stage="reflection", lark_enabled=True)
-        o.record_result("reflection")
-        # Should go directly to lark_sync (natural pipeline), not double-sync
-        assert o.ws.get_status().stage == "lark_sync"
-        # After lark_sync completes, should go to quality_gate
-        o.record_result("lark_sync")
-        assert o.ws.get_status().stage == "quality_gate"
-
-    def test_lark_sync_description_shows_resume_target(self, make_orchestrator):
-        """Interleaved lark_sync action description shows where it will resume."""
-        o = make_orchestrator(stage="lark_sync", lark_enabled=True)
-        o.ws.set_resume_after_sync("idea_debate")
-        action = o.get_next_action()
-        assert "idea_debate" in action["description"]
+        assert o.ws.get_status().stage == "idea_debate"
 
     def test_unknown_stage_forces_done(self, make_orchestrator):
         o = make_orchestrator(stage="nonexistent_stage")
@@ -154,11 +101,6 @@ class TestRecordResult:
         with pytest.raises(ValueError, match="Stage mismatch"):
             o.record_result("writing_sections")
 
-    def test_duplicate_lark_sync_is_idempotent_noop(self, make_orchestrator):
-        o = make_orchestrator(stage="idea_debate")
-        o.record_result("lark_sync")
-        assert o.ws.get_status().stage == "idea_debate"
-
     def test_writes_score_log(self, make_orchestrator):
         o = make_orchestrator(stage="literature_search")
         o.record_result("literature_search", score=8.5)
@@ -175,6 +117,113 @@ class TestRecordResult:
             cwd=o.ws.root, capture_output=True, text=True
         )
         assert "literature_search" in result.stdout
+
+
+# ══════════════════════════════════════════════
+# Background Feishu sync
+# ══════════════════════════════════════════════
+
+class TestBackgroundSync:
+    """Tests for background Feishu sync trigger in cli_record."""
+
+    def test_cli_record_appends_pending_sync_when_lark_enabled(self, make_orchestrator):
+        """cli_record should append a line to pending_sync.jsonl when lark_enabled."""
+        o = make_orchestrator(stage="literature_search", lark_enabled=True)
+        o.record_result("literature_search")
+        pending_path = o.ws.root / "lark_sync" / "pending_sync.jsonl"
+        assert pending_path.exists()
+        lines = pending_path.read_text().strip().split("\n")
+        assert len(lines) == 1
+        entry = json.loads(lines[0])
+        assert entry["trigger_stage"] == "literature_search"
+        assert "timestamp" in entry
+        assert "iteration" in entry
+
+    def test_cli_record_no_pending_sync_when_lark_disabled(self, make_orchestrator):
+        """No pending_sync.jsonl written when lark_enabled=False."""
+        o = make_orchestrator(stage="literature_search", lark_enabled=False)
+        o.record_result("literature_search")
+        pending_path = o.ws.root / "lark_sync" / "pending_sync.jsonl"
+        assert not pending_path.exists()
+
+    def test_cli_record_appends_multiple_syncs(self, make_orchestrator):
+        """Multiple stage completions append multiple lines."""
+        o = make_orchestrator(stage="literature_search", lark_enabled=True)
+        o.record_result("literature_search")
+        o.record_result("idea_debate")
+        pending_path = o.ws.root / "lark_sync" / "pending_sync.jsonl"
+        lines = pending_path.read_text().strip().split("\n")
+        assert len(lines) == 2
+        assert json.loads(lines[0])["trigger_stage"] == "literature_search"
+        assert json.loads(lines[1])["trigger_stage"] == "idea_debate"
+
+    def test_cli_record_returns_sync_requested(self, make_orchestrator, capsys, monkeypatch):
+        """cli_record output includes sync_requested when lark_enabled."""
+        o = make_orchestrator(stage="literature_search", lark_enabled=True)
+        o.ws.write_file("config.yaml", "lark_enabled: true\ngpu_poll_enabled: false\n")
+        monkeypatch.chdir(o.ws.root)
+        from sibyl.orchestrate import cli_record
+        cli_record(str(o.ws.root), "literature_search")
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
+        assert output["sync_requested"] is True
+
+    def test_cli_record_no_sync_requested_when_disabled(self, make_orchestrator, capsys, monkeypatch):
+        """cli_record output has no sync_requested when lark disabled."""
+        o = make_orchestrator(stage="literature_search", lark_enabled=False)
+        o.ws.write_file("config.yaml", "lark_enabled: false\ngpu_poll_enabled: false\n")
+        monkeypatch.chdir(o.ws.root)
+        from sibyl.orchestrate import cli_record
+        cli_record(str(o.ws.root), "literature_search")
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
+        assert output.get("sync_requested", False) is False
+
+    def test_no_pending_sync_for_init_stage(self, make_orchestrator):
+        """init stage should not trigger sync."""
+        o = make_orchestrator(stage="init", lark_enabled=True)
+        # init auto-advances, but shouldn't write sync trigger
+        pending_path = o.ws.root / "lark_sync" / "pending_sync.jsonl"
+        assert not pending_path.exists()
+
+    def test_no_pending_sync_for_quality_gate(self, make_orchestrator):
+        """quality_gate should not trigger sync."""
+        o = make_orchestrator(stage="quality_gate", lark_enabled=True, iteration=1)
+        # quality_gate needs a score to proceed
+        o.ws.write_file("logs/stage_review_score.txt", "9.0")
+        o.record_result("quality_gate", score=9.0)
+        pending_path = o.ws.root / "lark_sync" / "pending_sync.jsonl"
+        assert not pending_path.exists()
+
+    def test_cli_status_includes_sync_status(self, make_orchestrator, capsys):
+        """cli_status should include lark sync status when sync_status.json exists."""
+        o = make_orchestrator(stage="idea_debate", lark_enabled=True)
+        ws_path = o.ws.root
+        sync_dir = ws_path / "lark_sync"
+        sync_dir.mkdir(parents=True, exist_ok=True)
+        status_data = {
+            "last_sync_at": "2026-03-09T12:00:00Z",
+            "last_sync_success": True,
+            "last_synced_line": 1,
+            "last_trigger_stage": "literature_search",
+            "history": [],
+        }
+        (sync_dir / "sync_status.json").write_text(json.dumps(status_data))
+        from sibyl.orchestrate import cli_status
+        cli_status(str(ws_path))
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
+        assert output["lark_sync_status"]["last_sync_success"] is True
+
+    def test_cli_status_no_sync_status_when_missing(self, make_orchestrator, capsys):
+        """cli_status should not include lark_sync_status when no sync_status.json."""
+        o = make_orchestrator(stage="idea_debate", lark_enabled=False)
+        ws_path = o.ws.root
+        from sibyl.orchestrate import cli_status
+        cli_status(str(ws_path))
+        captured = capsys.readouterr()
+        output = json.loads(captured.out)
+        assert "lark_sync_status" not in output
 
 
 # ══════════════════════════════════════════════
@@ -561,9 +610,16 @@ class TestActionGeneration:
         assert action["skills"][0]["name"] == "sibyl-sequential-writer"
 
     def test_writing_mode_codex(self, make_orchestrator):
-        o = make_orchestrator(stage="writing_sections", writing_mode="codex")
+        o = make_orchestrator(stage="writing_sections", writing_mode="codex", codex_enabled=True)
         action = o.get_next_action()
         assert action["skills"][0]["name"] == "sibyl-codex-writer"
+
+    def test_writing_mode_codex_falls_back_when_disabled(self, make_orchestrator):
+        o = make_orchestrator(stage="writing_sections", writing_mode="codex", codex_enabled=False)
+        action = o.get_next_action()
+        assert action["action_type"] == "team"
+        assert action["team"]["team_name"] == "sibyl-writing-sections"
+        assert "自动回退" in action["description"]
 
     def test_writing_mode_parallel(self, make_orchestrator):
         o = make_orchestrator(stage="writing_sections", writing_mode="parallel")
@@ -609,6 +665,12 @@ class TestActionGeneration:
 
     def test_experiment_mode_server_codex(self, make_orchestrator):
         o = make_orchestrator(stage="pilot_experiments", experiment_mode="server_codex",
+                              gpu_poll_enabled=False)
+        action = o.get_next_action()
+        assert action["skills"][0]["name"] == "sibyl-server-experimenter"
+
+    def test_experiment_mode_server_claude(self, make_orchestrator):
+        o = make_orchestrator(stage="pilot_experiments", experiment_mode="server_claude",
                               gpu_poll_enabled=False)
         action = o.get_next_action()
         assert action["skills"][0]["name"] == "sibyl-server-experimenter"
@@ -840,7 +902,7 @@ class TestCLI:
         (ws_dir / "status.json").write_text(
             json.dumps({"stage": "init", "started_at": 1.0, "updated_at": 1.0,
                          "iteration": 0, "errors": [], "paused_at": 0.0,
-                         "resume_after_sync": "", "iteration_dirs": False}),
+                         "iteration_dirs": False}),
             encoding="utf-8",
         )
         (ws_dir / "topic.txt").write_text("test", encoding="utf-8")
@@ -860,7 +922,7 @@ class TestCLI:
         (ws_dir / "status.json").write_text(
             json.dumps({"stage": "init", "started_at": 1.0, "updated_at": 1.0,
                          "iteration": 0, "errors": [], "paused_at": 0.0,
-                         "resume_after_sync": "", "iteration_dirs": False}),
+                         "iteration_dirs": False}),
             encoding="utf-8",
         )
         (ws_dir / "topic.txt").write_text("test", encoding="utf-8")
@@ -897,7 +959,7 @@ class TestSkillArgContracts:
         action = o.get_next_action()
         args = shlex.split(action["skills"][0]["args"])
 
-        assert args == [topic, str(o.ws.root)]
+        assert args == [str(o.ws.root), topic]
 
     def test_idea_debate_teammates_preserve_topic_spaces(self, make_orchestrator):
         topic = "multi agent planning with language models"
@@ -907,7 +969,7 @@ class TestSkillArgContracts:
         action = o.get_next_action()
         teammate = next(t for t in action["team"]["teammates"] if t["name"] == "innovator")
 
-        assert shlex.split(teammate["args"]) == [topic, str(o.ws.root)]
+        assert shlex.split(teammate["args"]) == [str(o.ws.root), topic]
 
     def test_planner_skill_args_use_explicit_mode(self, make_orchestrator):
         o = make_orchestrator(stage="planning")
@@ -964,6 +1026,26 @@ class TestSkillArgContracts:
             o.config.get_remote_env_cmd(o.ws.name),
             "0,1,2,3",
             "server_codex",
+        ]
+
+    def test_server_claude_experimenter_args_include_remote_env_command(self, make_orchestrator):
+        o = make_orchestrator(
+            stage="pilot_experiments",
+            experiment_mode="server_claude",
+            gpu_poll_enabled=False,
+        )
+        action = o.get_next_action()
+        args = shlex.split(action["skills"][0]["args"])
+
+        assert action["skills"][0]["name"] == "sibyl-server-experimenter"
+        assert args[:7] == [
+            "PILOT",
+            str(o.ws.root),
+            "default",
+            "/home/user/sibyl_system",
+            o.config.get_remote_env_cmd(o.ws.name),
+            "0,1,2,3",
+            "server_claude",
         ]
 
     def test_section_writer_args_match_skill_contract(self, make_orchestrator):
@@ -1796,7 +1878,24 @@ class TestExperimentBatchRegistersRunning:
         action = o.get_next_action()
 
         dispatch_cmd = action["experiment_monitor"]["dispatch_cmd"]
-        assert f"cli_dispatch_tasks({str(o.ws.root / 'current')!r})" in dispatch_cmd
+        assert shlex.quote(sys.executable) in dispatch_cmd
+        assert "-m sibyl.cli dispatch" in dispatch_cmd
+        assert shlex.quote(str(o.ws.root / "current")) in dispatch_cmd
+        assert "cli_dispatch_tasks(" not in dispatch_cmd
+
+
+class TestSelfHealMonitorScript:
+    def test_self_heal_monitor_script_uses_project_scoped_status_and_cli(self):
+        workspace = "/tmp/demo dir/it's ok"
+
+        script = self_heal_monitor_script(workspace, interval_sec=60)
+
+        expected_status_file = project_marker_file(Path(workspace).name, "self_heal_monitor")
+        assert f"WORKSPACE={shlex.quote(workspace)}" in script
+        assert f"STATUS_FILE={shlex.quote(expected_status_file)}" in script
+        assert "-m sibyl.cli self-heal-scan" in script
+        assert shlex.quote(sys.executable) in script
+        assert "cli_self_heal_scan(" not in script
 
 
 # ══════════════════════════════════════════════

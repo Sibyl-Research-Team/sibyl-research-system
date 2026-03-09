@@ -125,7 +125,7 @@ language: en
 
 - **`sequential`**: Single agent writes all sections in order. Best consistency.
 - **`parallel`**: 6 agents write sections simultaneously. Faster, but may have style inconsistencies.
-- **`codex`**: GPT-5.4 writes the paper. Requires `codex_enabled: true`.
+- **`codex`**: GPT-5.4 writes the paper. Requires `codex_enabled: true`; otherwise Sibyl falls back to `parallel`.
 
 ## Experiment Execution
 
@@ -145,13 +145,14 @@ language: en
 |-------|------|---------|-------------|
 | `remote_env_type` | string | `"conda"` | Python environment type on server: `conda` \| `venv` |
 | `remote_conda_path` | string | `""` | Custom conda path (empty = auto `{remote_base}/miniconda3/bin/conda`) |
+| `remote_conda_env_name` | string | `""` | Optional conda env override; empty = auto `sibyl_<project>`, set e.g. `base` to reuse an existing env |
 | `iteration_dirs` | bool | `false` | Enable iteration subdirectory mode (`iter_NNN/` + `current` symlink) |
 
 ## Codex Integration
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `codex_enabled` | bool | `true` | Enable GPT-5.4 independent cross-review |
+| `codex_enabled` | bool | `false` | Enable GPT-5.4 independent cross-review after Codex MCP is installed |
 | `codex_model` | string | `""` | Optional model override for Codex review calls (empty = use Codex MCP default) |
 
 See [Codex Integration](codex-integration.md) for full setup instructions.
@@ -224,7 +225,7 @@ remote_env_type: "conda"
 # Pipeline
 writing_mode: parallel
 experiment_mode: ssh_mcp
-codex_enabled: true
+codex_enabled: false
 lark_enabled: false
 debate_rounds: 3
 idea_exp_cycles: 4

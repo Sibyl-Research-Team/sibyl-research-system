@@ -134,6 +134,7 @@ Sibyl orchestrates 20+ AI agents through a **19-stage state-machine pipeline**, 
 - **GPU-Parallel Scheduling**: Topological sort + dynamic dispatch, maximizing GPU utilization with automatic task dependency management
 - **Autonomous Iterative Optimization**: Quality gate auto-decides whether to continue iterating, pivot to new ideas, or terminate — every dimension of research improves across iterations
 - **Self-Evolving System**: Automatically extracts lessons across 8 categories, tracks effectiveness, prunes what doesn't work, and updates agent prompts — the system improves itself with every project
+- **Self-Healing System**: Background agent continuously monitors for runtime errors, auto-fixes them using skill pipelines, adds regression tests, and commits fixes — all without human intervention
 - **Multi-Model Collaboration**: Claude Opus/Sonnet + GPT-5.4 (Codex) independent cross-review
 
 ## Pipeline
@@ -281,6 +282,68 @@ This means evolution is not a "batch update" that requires a maintenance window.
 
 **8 Issue Categories**: SYSTEM, EXPERIMENT, WRITING, ANALYSIS, PLANNING, PIPELINE, IDEATION, EFFICIENCY — each automatically routed to the relevant agents. The planner learns to design better experiments, the experimenter learns to use GPUs more efficiently, the writer learns to avoid recurring style issues — all without manual intervention.
 
+## Self-Healing System
+
+While the self-evolution system learns from *completed* iterations, the **self-healing system** operates in real time — continuously monitoring for runtime errors and fixing them autonomously as the research pipeline runs.
+
+```
+Runtime Error Occurs
+       |
+       v
+  Error Collector ──> Structured capture to logs/errors.jsonl
+       |                    ├── Exception type, traceback, file, line
+       |                    ├── Pipeline stage & project context
+       |                    └── Automatic categorization (7 types)
+       v
+  Error Router ──> Intelligent triage
+       |                    ├── Deduplication (hash-based)
+       |                    ├── Priority sorting (import > build > type > test > ...)
+       |                    ├── Skill routing (error type → repair skill pipeline)
+       |                    └── Circuit breaker (3 failures → escalate to human)
+       v
+  Self-Healer Agent ──> Autonomous repair
+       |                    ├── Invoke mapped skills (systematic-debugging, tdd-workflow, ...)
+       |                    ├── Apply fix with scope limits (max 5 files, protected file rules)
+       |                    ├── Generate regression test to prevent recurrence
+       |                    └── Verify: full test suite must pass
+       v
+  Git Commit ──> fix(self-heal): <description> [auto]
+                    └── All fixes tracked on dev branch, periodically synced to main
+```
+
+### How It Works
+
+The self-healing system is a **three-layer architecture**:
+
+1. **Error Collector** (`sibyl/error_collector.py`) — Captures runtime exceptions with full context (traceback, stage, project) into structured JSONL records. A `@wrap_cli` decorator automatically catches errors from all orchestrator CLI functions. Errors are categorized into 7 types: `import`, `test`, `type`, `state`, `config`, `build`, `prompt`.
+
+2. **Error Router** (`sibyl/self_heal.py`) — Deduplicates errors by content hash, sorts by priority (import errors before config errors), and maps each error category to a repair skill pipeline via the **skill route table**. A circuit breaker prevents infinite fix loops: after 3 failed attempts on the same error, it is marked for human intervention.
+
+3. **Self-Healer Agent** (`sibyl-self-healer` skill) — A fork skill running on the standard tier (Opus) that receives repair tasks and autonomously:
+   - Invokes the appropriate skills (e.g., `systematic-debugging` → `tdd-workflow`)
+   - Applies the fix within scope limits (max 5 files per fix, surgical changes to protected files)
+   - Writes a regression test covering the exact failure condition
+   - Runs the full test suite to verify the fix
+   - Commits with `fix(self-heal): ... [auto]` format for full traceability
+
+### Safety Mechanisms
+
+| Mechanism | Purpose |
+|-----------|---------|
+| Circuit breaker | Same error failing 3 times → stops and flags for human review |
+| File scope limit | Max 5 files modified per fix — prevents over-reaching changes |
+| Protected files | Core files like `orchestrate.py` only allow minimal, surgical edits |
+| Test gate | Full test suite must pass before any fix is committed |
+| Git tracking | Every fix is a separate commit on `dev` — fully reversible |
+
+### Configuration
+
+```yaml
+self_heal_enabled: true        # Enable self-healing (default: true)
+self_heal_interval_sec: 300    # Background scan interval (default: 5 min)
+self_heal_max_attempts: 3      # Circuit breaker threshold (default: 3)
+```
+
 ## Project Structure
 
 ```
@@ -292,7 +355,9 @@ sibyl-system/
 │   ├── gpu_scheduler.py        # GPU topological sort & parallel scheduling
 │   ├── evolution.py            # Cross-project evolution engine
 │   ├── reflection.py           # Iteration logging
-│   └── prompts/                # 32 agent prompt templates
+│   ├── error_collector.py      # Structured error capture for self-healing
+│   ├── self_heal.py            # Error routing, circuit breaker, repair orchestration
+│   └── prompts/                # 33 agent prompt templates
 ├── .claude/
 │   ├── agents/                 # Agent tier definitions (heavy/standard/light)
 │   └── skills/sibyl-*/         # 30+ Fork Skills (isolated context execution)
@@ -358,7 +423,7 @@ See **[MCP Servers Guide](docs/mcp-servers.md)** for installation and `~/.mcp.js
 
 ### Optional Tools
 
-- [OpenAI Codex CLI](https://github.com/openai/codex) — Independent cross-review (`codex_enabled: true`)
+- [OpenAI Codex CLI](https://github.com/openai/codex) — Independent cross-review (opt in with `codex_enabled: true`)
 - [Ralph Loop](https://github.com/anthropics/claude-code) — Autonomous iteration loop (Claude Code plugin)
 
 ## Key Mechanisms
@@ -408,6 +473,7 @@ When experiment results are unsatisfactory, the supervisor decision agent can tr
 | Experiment execution | GPU-parallel with topo-sort scheduling | Template-based | Single-GPU loop |
 | Paper writing | Multi-agent write + review + revise | LLM generation | N/A |
 | Self-evolution | Cross-project lesson learning | None | None |
+| Self-healing | Auto-detect & fix runtime errors | None | None |
 | Quality control | Multi-round review + quality gate | Automated review | Metric-based |
 | Human intervention | Fully autonomous | Minimal | Minimal |
 

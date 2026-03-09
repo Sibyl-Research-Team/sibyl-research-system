@@ -71,7 +71,7 @@ Sibyl relies on several MCP servers. `setup.sh` configures the required ones aut
 
 **Recommended:**
 - [Google Scholar MCP](https://github.com/JackKuo666/Google-Scholar-MCP-Server) — academic search
-- [Codex MCP](https://github.com/openai/codex) — GPT-5.4 independent cross-review
+- [Codex MCP](https://github.com/openai/codex) — GPT-5.4 independent cross-review (enable with `codex_enabled: true` after installation)
 
 **Optional:**
 - [Lark](https://github.com/larksuite/lark-openapi-mcp)/[Feishu](https://github.com/cso1z/Feishu-MCP) MCP — cloud document sync

@@ -257,11 +257,13 @@ def _load_gpu_progress(workspace_root: Path) -> dict:
 
 
 def _save_gpu_progress(workspace_root: Path, data: dict) -> None:
-    """Write gpu_progress.json."""
+    """Write gpu_progress.json with file locking to prevent race conditions."""
+    from sibyl.gpu_scheduler import _progress_lock
     path = workspace_root / GPU_PROGRESS_FILE
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
+    with _progress_lock(workspace_root):
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
 
 
 def sync_to_gpu_progress(workspace_root: Path, state: ExperimentState) -> None:

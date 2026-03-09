@@ -16,7 +16,6 @@ class WorkspaceStatus:
     iteration: int = 0
     errors: list[dict] = field(default_factory=list)
     paused_at: float = 0.0  # 0 = not paused, >0 = pause timestamp
-    resume_after_sync: str = ""  # stage to resume after mid-pipeline lark_sync
     iteration_dirs: bool = False  # True = iteration subdirectory mode
 
 
@@ -225,11 +224,6 @@ class Workspace:
         status.iteration = iteration
         self._save_status(status)
 
-    def set_resume_after_sync(self, stage: str):
-        """Set (or clear) the stage to resume after a mid-pipeline lark_sync."""
-        status = self.get_status()
-        status.resume_after_sync = stage
-        self._save_status(status)
 
     def add_error(self, error: str):
         status = self.get_status()

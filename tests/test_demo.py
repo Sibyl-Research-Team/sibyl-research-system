@@ -24,6 +24,7 @@ class TestRemoteParallelSmokeDemo:
             ssh_server="default",
             remote_base="/remote/base",
             remote_conda_path="/remote/conda/bin/conda",
+            remote_conda_env_name="base",
             gpt2_source_path="/models/gpt2",
             qwen_source_path="/models/qwen",
         )
@@ -42,6 +43,7 @@ class TestRemoteParallelSmokeDemo:
         assert config["remote_base"] == "/remote/base"
         assert config["iteration_dirs"] is True
         assert config["max_parallel_tasks"] == 2
+        assert config["remote_conda_env_name"] == "base"
 
         spec_text = (ws_root / "spec.md").read_text(encoding="utf-8")
         assert "shared/checkpoints/gpt2_local" in spec_text
