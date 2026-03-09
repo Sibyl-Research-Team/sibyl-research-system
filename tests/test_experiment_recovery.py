@@ -276,6 +276,73 @@ class TestStateSyncWithGpuProgress:
         assert state.tasks["t4"]["gpu_ids"] == [0, 1]
 
 
+class TestEndToEndRecovery:
+    """Full pipeline: register → simulate interrupt → recover."""
+
+    def test_full_recovery_pipeline(self, tmp_path):
+        from sibyl.experiment_recovery import (
+            ExperimentState, register_task, save_experiment_state,
+            load_experiment_state, generate_detection_script,
+            parse_detection_output, recover_from_detection,
+            sync_to_gpu_progress,
+        )
+        from sibyl.gpu_scheduler import register_running_tasks, _load_progress
+
+        # Phase 1: Register tasks (simulating orchestrator dispatch)
+        state = ExperimentState()
+        register_task(state, "train_baseline", gpu_ids=[0, 1], pid_file="/tmp/train_baseline.pid")
+        register_task(state, "train_ablation", gpu_ids=[2], pid_file="/tmp/train_ablation.pid")
+        register_task(state, "train_extra", gpu_ids=[3], pid_file="/tmp/train_extra.pid")
+        save_experiment_state(tmp_path, state)
+        register_running_tasks(tmp_path, {
+            "train_baseline": [0, 1],
+            "train_ablation": [2],
+            "train_extra": [3],
+        })
+
+        # Phase 2: Generate detection script
+        script = generate_detection_script("/home/user/project", [
+            "train_baseline", "train_ablation", "train_extra",
+        ])
+        assert "train_baseline" in script
+
+        # Phase 3: Simulate SSH output (as if script ran on server)
+        ssh_output = (
+            'DONE:train_baseline:{"status":"success","summary":"loss=0.1"}\n'
+            'RUNNING:train_ablation:{"epoch":75,"total_epochs":100,"loss":0.25}\n'
+            'DEAD:train_extra:99999\n'
+        )
+
+        # Phase 4: Parse and recover
+        detection = parse_detection_output(ssh_output)
+        state = load_experiment_state(tmp_path)
+        result = recover_from_detection(state, detection)
+
+        assert result.recovered_completed == ["train_baseline"]
+        assert result.still_running == ["train_ablation"]
+        assert result.recovered_failed == ["train_extra"]
+        assert result.needs_monitor is True
+        assert result.progress["train_ablation"]["epoch"] == 75
+
+        # Phase 5: Sync to gpu_progress
+        save_experiment_state(tmp_path, state)
+        sync_to_gpu_progress(tmp_path, state)
+
+        completed, running_ids, _, _ = _load_progress(tmp_path)
+        assert "train_baseline" in completed
+        assert "train_ablation" in running_ids
+        assert "train_extra" not in running_ids
+
+        # Phase 6: Verify state file
+        final = load_experiment_state(tmp_path)
+        assert final.tasks["train_baseline"]["status"] == "completed"
+        assert final.tasks["train_ablation"]["status"] == "running"
+        assert final.tasks["train_extra"]["status"] == "failed"
+        assert "process_disappeared" in final.tasks["train_extra"]["error_summary"]
+        # 2 log entries: one for completed train_baseline, one for dead train_extra
+        assert len(final.recovery_log) == 2
+
+
 class TestMonitorProgressReading:
     def test_monitor_script_reads_progress(self):
         from sibyl.gpu_scheduler import experiment_monitor_script

@@ -211,6 +211,7 @@ def recover_from_detection(
             result.progress[task_id] = info.get("progress", {})
         elif status == "dead":
             state.tasks[task_id]["status"] = "failed"
+            state.tasks[task_id]["error_summary"] = "process_disappeared"
             result.recovered_failed.append(task_id)
             dead_pid = info.get("dead_pid", "?")
             log_entries.append(
@@ -218,6 +219,7 @@ def recover_from_detection(
             )
         else:  # unknown
             state.tasks[task_id]["status"] = "failed"
+            state.tasks[task_id]["error_summary"] = "unknown_status"
             result.recovered_failed.append(task_id)
             log_entries.append(f"[{now}] {task_id}: unknown status, marked failed")
 

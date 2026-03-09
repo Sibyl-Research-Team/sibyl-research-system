@@ -865,7 +865,7 @@ class TestCLI:
         )
         (ws_dir / "topic.txt").write_text("test", encoding="utf-8")
         o = FarsOrchestrator(str(ws_dir))
-        assert o.config.ssh_server == "gpu-server"  # default
+        assert o.config.ssh_server == "default"  # default
 
     def test_project_path_wins_over_config_workspaces_dir(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
@@ -940,7 +940,7 @@ class TestSkillArgContracts:
         assert args[:5] == [
             "PILOT",
             str(o.ws.root),
-            "gpu-server",
+            "default",
             "/home/user/sibyl_system",
             o.config.get_remote_env_cmd(o.ws.name),
         ]
@@ -959,7 +959,7 @@ class TestSkillArgContracts:
         assert args[:7] == [
             "PILOT",
             str(o.ws.root),
-            "gpu-server",
+            "default",
             "/home/user/sibyl_system",
             o.config.get_remote_env_cmd(o.ws.name),
             "0,1,2,3",
@@ -1263,7 +1263,7 @@ class TestGpuPollingIntegration:
         action = o.get_next_action()
         assert action["action_type"] == "gpu_poll"
         assert action["gpu_poll"] is not None
-        assert action["gpu_poll"]["ssh_connection"] == "gpu-server"
+        assert action["gpu_poll"]["ssh_connection"] == "default"
         assert action["gpu_poll"]["marker_file"] == project_marker_file("test-proj", "gpu_free")
         assert "nvidia-smi" in action["gpu_poll"]["query_cmd"]
         assert action["gpu_poll"]["max_gpus"] == 4
