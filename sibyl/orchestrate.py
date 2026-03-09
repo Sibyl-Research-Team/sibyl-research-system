@@ -2100,6 +2100,88 @@ def cli_dispatch_tasks(workspace_path: str):
     }, indent=2))
 
 
+def cli_recover_experiments(workspace_path: str):
+    """CLI: Detect and prepare recovery for interrupted experiments.
+
+    Loads experiment_state.json, checks for running tasks, and if found,
+    generates a detection script to run via SSH to determine actual status.
+
+    Output JSON:
+        {"status": "no_recovery_needed", "total_tasks": N}
+        or {"status": "has_running_tasks", "running_tasks": [...],
+            "detection_script": "...", "ssh_server": "...",
+            "instructions": "..."}
+    """
+    from sibyl.experiment_recovery import (
+        load_experiment_state, migrate_from_gpu_progress,
+        save_experiment_state, get_running_tasks, generate_detection_script,
+    )
+
+    active_root = resolve_active_workspace_path(workspace_path)
+    state = load_experiment_state(active_root)
+
+    # If no tasks tracked, try migrating from gpu_progress.json
+    if not state.tasks:
+        state = migrate_from_gpu_progress(active_root)
+        if state.tasks:
+            save_experiment_state(active_root, state)
+
+    running = get_running_tasks(state)
+    if not running:
+        print(json.dumps({
+            "status": "no_recovery_needed",
+            "total_tasks": len(state.tasks),
+        }, indent=2))
+        return
+
+    o = FarsOrchestrator(workspace_path)
+    remote_project_dir = f"{o.config.remote_base}/projects/{o.ws.name}"
+    script = generate_detection_script(remote_project_dir, running)
+
+    print(json.dumps({
+        "status": "has_running_tasks",
+        "running_tasks": running,
+        "detection_script": script,
+        "ssh_server": o.config.ssh_server,
+        "instructions": (
+            "Run the detection_script on the remote server via SSH, "
+            "then pass the output to cli_apply_recovery."
+        ),
+    }, indent=2))
+
+
+def cli_apply_recovery(workspace_path: str, ssh_output: str):
+    """CLI: Apply recovery based on SSH detection output.
+
+    Parses the output from a detection script, updates experiment_state,
+    syncs to gpu_progress.json, and returns a recovery summary.
+
+    Output JSON:
+        {"status": "recovered", "recovered_completed": [...],
+         "still_running": [...], "recovered_failed": [...],
+         "progress": {...}}
+    """
+    from sibyl.experiment_recovery import (
+        load_experiment_state, save_experiment_state,
+        parse_detection_output, recover_from_detection,
+        sync_to_gpu_progress,
+    )
+    from dataclasses import asdict as _asdict
+
+    active_root = resolve_active_workspace_path(workspace_path)
+    state = load_experiment_state(active_root)
+
+    detection = parse_detection_output(ssh_output)
+    result = recover_from_detection(state, detection)
+
+    save_experiment_state(active_root, state)
+    sync_to_gpu_progress(active_root, state)
+
+    output = _asdict(result)
+    output["status"] = "recovered"
+    print(json.dumps(output, indent=2))
+
+
 def cli_list_projects(workspaces_dir: str = "workspaces"):
     """CLI: List all projects."""
     ws_dir = Path(workspaces_dir)

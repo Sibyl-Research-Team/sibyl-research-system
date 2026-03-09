@@ -1981,3 +1981,77 @@ class TestExperimentStateIntegration:
         # Verify experiment_state was updated
         updated = load_experiment_state(o.ws.active_root)
         assert updated.tasks["a"]["status"] == "completed"
+
+
+# ══════════════════════════════════════════════
+# CLI: cli_recover_experiments
+# ══════════════════════════════════════════════
+
+class TestCliRecoverExperiments:
+    def test_no_running_tasks(self, make_orchestrator):
+        from sibyl.orchestrate import cli_recover_experiments
+        import io, sys
+        o = make_orchestrator(stage="pilot_experiments")
+        captured = io.StringIO()
+        sys.stdout = captured
+        cli_recover_experiments(str(o.ws.root))
+        sys.stdout = sys.__stdout__
+        result = json.loads(captured.getvalue())
+        assert result["status"] == "no_recovery_needed"
+
+    def test_with_running_tasks(self, make_orchestrator):
+        from sibyl.orchestrate import cli_recover_experiments
+        from sibyl.experiment_recovery import (
+            ExperimentState, register_task, save_experiment_state,
+        )
+        import io, sys
+        o = make_orchestrator(stage="pilot_experiments")
+        state = ExperimentState()
+        register_task(state, "task_a", gpu_ids=[0])
+        save_experiment_state(o.ws.active_root, state)
+
+        captured = io.StringIO()
+        sys.stdout = captured
+        cli_recover_experiments(str(o.ws.root))
+        sys.stdout = sys.__stdout__
+        result = json.loads(captured.getvalue())
+        assert result["status"] == "has_running_tasks"
+        assert "task_a" in result["running_tasks"]
+        assert "detection_script" in result
+
+
+# ══════════════════════════════════════════════
+# CLI: cli_apply_recovery
+# ══════════════════════════════════════════════
+
+class TestCliApplyRecovery:
+    def test_apply_recovery_updates_state(self, make_orchestrator):
+        from sibyl.orchestrate import cli_apply_recovery
+        from sibyl.experiment_recovery import (
+            ExperimentState, register_task, save_experiment_state,
+        )
+        from sibyl.gpu_scheduler import register_running_tasks
+        import io, sys
+
+        o = make_orchestrator(stage="pilot_experiments")
+        state = ExperimentState()
+        register_task(state, "task_a", gpu_ids=[0])
+        register_task(state, "task_b", gpu_ids=[1])
+        save_experiment_state(o.ws.active_root, state)
+        register_running_tasks(o.ws.active_root, {"task_a": [0], "task_b": [1]})
+
+        ssh_output = (
+            'DONE:task_a:{"status":"success","summary":"ok"}\n'
+            'RUNNING:task_b:{"epoch":50,"total_epochs":100}\n'
+        )
+
+        captured = io.StringIO()
+        sys.stdout = captured
+        cli_apply_recovery(str(o.ws.root), ssh_output)
+        sys.stdout = sys.__stdout__
+        result = json.loads(captured.getvalue())
+
+        assert result["status"] == "recovered"
+        assert "task_a" in result["recovered_completed"]
+        assert "task_b" in result["still_running"]
+        assert result["progress"]["task_b"]["epoch"] == 50
