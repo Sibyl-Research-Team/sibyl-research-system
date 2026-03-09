@@ -70,12 +70,40 @@ echo "EXPERIMENT_DONE"
 - 收集结果到 `results.json`
 - **写入 DONE 标记文件**（见下方）
 
+### 进程标识与进度上报（CRITICAL）
+
+服务器端 agent **必须**确保训练脚本在启动时写入 PID 文件、训练中写入进度文件：
+
+```python
+# 训练脚本启动时
+import os; Path(f"exp/results/{task_id}.pid").write_text(str(os.getpid()))
+
+# 每 epoch 写入进度
+import json
+Path(f"exp/results/{task_id}_PROGRESS.json").write_text(json.dumps({
+    "task_id": task_id, "epoch": epoch, "total_epochs": total_epochs,
+    "loss": loss, "updated_at": datetime.now().isoformat(),
+}))
+```
+
+不写 PID 文件的任务在系统中断后无法被恢复检测。
+
 ### 完成标记文件（CRITICAL）
 
 实验 prompt 中**必须**要求服务器端 agent 在每个任务完成后写入 DONE 标记：
 ```python
 # 写入路径: {remote_base}/projects/{project}/exp/results/{task_id}_DONE
-import json; Path(f"exp/results/{task_id}_DONE").write_text(json.dumps({
+from pathlib import Path
+import json
+from datetime import datetime
+
+# Clean up PID file
+pid_file = Path(f"exp/results/{task_id}.pid")
+if pid_file.exists():
+    pid_file.unlink()
+
+# Write DONE marker
+Path(f"exp/results/{task_id}_DONE").write_text(json.dumps({
     "task_id": task_id, "status": "success",  # 或 "failed"
     "summary": "简要结果摘要", "timestamp": datetime.now().isoformat()
 }))

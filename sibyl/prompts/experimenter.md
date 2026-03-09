@@ -66,6 +66,44 @@ ssh {ssh_server} "cd {remote_base}/projects/{project} && CUDA_VISIBLE_DEVICES={g
 - Handle OOM gracefully
 - Make experiments batch-resumable
 
+## 进程标识与进度上报（CRITICAL）
+
+每个训练任务启动时**必须**写入 PID 文件，供系统恢复检测：
+
+```python
+import os
+from pathlib import Path
+
+# 训练进程启动时立即写入
+pid_file = Path(results_dir) / f"{task_id}.pid"
+pid_file.write_text(str(os.getpid()))
+```
+
+训练循环中**必须**每个 epoch 写入进度文件：
+
+```python
+import json
+from datetime import datetime
+from pathlib import Path
+
+def report_progress(task_id, results_dir, epoch, total_epochs, step=0,
+                    total_steps=0, loss=None, metric=None):
+    """Write progress file for system monitor to track."""
+    progress = Path(results_dir) / f"{task_id}_PROGRESS.json"
+    progress.write_text(json.dumps({
+        "task_id": task_id,
+        "epoch": epoch, "total_epochs": total_epochs,
+        "step": step, "total_steps": total_steps,
+        "loss": loss, "metric": metric or {},
+        "updated_at": datetime.now().isoformat(),
+    }))
+```
+
+- PID 文件路径: `{remote_base}/projects/{project}/exp/results/{task_id}.pid`
+- 进度文件路径: `{remote_base}/projects/{project}/exp/results/{task_id}_PROGRESS.json`
+- **不写 PID 文件的任务在系统中断后无法被恢复检测**
+- 进度文件每 epoch 覆写一次（非追加），系统监控读取最新状态
+
 ## 完成标记与通知（CRITICAL）
 
 每个任务完成后**必须**写入 DONE 标记文件，供系统监控进程检测：
@@ -77,11 +115,25 @@ from pathlib import Path
 
 def mark_task_done(task_id, results_dir, status="success", summary=""):
     """Write DONE marker file for system monitor to detect."""
+    # Clean up PID file
+    pid_file = Path(results_dir) / f"{task_id}.pid"
+    if pid_file.exists():
+        pid_file.unlink()
+    # Merge final progress if available
+    progress_file = Path(results_dir) / f"{task_id}_PROGRESS.json"
+    final_progress = {}
+    if progress_file.exists():
+        try:
+            final_progress = json.loads(progress_file.read_text())
+        except (json.JSONDecodeError, ValueError):
+            pass
+    # Write DONE marker
     marker = Path(results_dir) / f"{task_id}_DONE"
     marker.write_text(json.dumps({
         "task_id": task_id,
-        "status": status,  # "success" or "failed"
+        "status": status,
         "summary": summary,
+        "final_progress": final_progress,
         "timestamp": __import__("datetime").datetime.now().isoformat(),
     }))
 ```
