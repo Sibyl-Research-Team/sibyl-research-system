@@ -2083,6 +2083,140 @@ class TestExperimentStateIntegration:
 
 
 # ══════════════════════════════════════════════
+# experiment_wait action for running experiments
+# ══════════════════════════════════════════════
+
+
+class TestExperimentWaitAction:
+    """Verify that experiment_wait is returned when experiments are running."""
+
+    def test_returns_experiment_wait_when_all_tasks_running(self, make_orchestrator):
+        """When all tasks are running and no pending tasks, return experiment_wait."""
+        from sibyl.experiment_recovery import (
+            ExperimentState, register_task, save_experiment_state,
+        )
+        from sibyl.gpu_scheduler import register_running_tasks
+
+        o = make_orchestrator(stage="experiment_cycle", gpu_poll_enabled=False)
+        tasks = [
+            {"id": "a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 60},
+            {"id": "b", "depends_on": [], "gpu_count": 1, "estimated_minutes": 120},
+        ]
+        o.ws.write_file("plan/task_plan.json", json.dumps({"tasks": tasks}))
+
+        # Both tasks already running
+        state = ExperimentState()
+        register_task(state, "a", gpu_ids=[0])
+        register_task(state, "b", gpu_ids=[1])
+        save_experiment_state(o.ws.active_root, state)
+        register_running_tasks(o.ws.active_root, {"a": [0], "b": [1]})
+
+        action = o.get_next_action()
+        assert action["action_type"] == "experiment_wait"
+        assert action["stage"] == "experiment_cycle"
+        assert "experiment_monitor" in action
+        assert action["experiment_monitor"]["poll_interval_sec"] > 0
+        assert "check_cmd" in action["experiment_monitor"]
+        assert "status_cmd" in action["experiment_monitor"]
+
+    def test_experiment_wait_adaptive_interval_short(self, make_orchestrator):
+        """Short remaining time → 2min poll interval."""
+        import datetime
+        from sibyl.experiment_recovery import (
+            ExperimentState, register_task, save_experiment_state,
+        )
+        from sibyl.gpu_scheduler import register_running_tasks
+
+        o = make_orchestrator(stage="experiment_cycle", gpu_poll_enabled=False)
+        tasks = [
+            {"id": "a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 20},
+        ]
+        o.ws.write_file("plan/task_plan.json", json.dumps({"tasks": tasks}))
+
+        state = ExperimentState()
+        register_task(state, "a", gpu_ids=[0])
+        # Started 10 min ago → 10 min remaining
+        state.tasks["a"]["started_at"] = (
+            datetime.datetime.now() - datetime.timedelta(minutes=10)
+        ).isoformat()
+        save_experiment_state(o.ws.active_root, state)
+        register_running_tasks(o.ws.active_root, {"a": [0]})
+
+        action = o.get_next_action()
+        assert action["action_type"] == "experiment_wait"
+        assert action["experiment_monitor"]["poll_interval_sec"] == 120  # 2 min
+
+    def test_experiment_wait_adaptive_interval_long(self, make_orchestrator):
+        """Long remaining time → 10min poll interval."""
+        from sibyl.experiment_recovery import (
+            ExperimentState, register_task, save_experiment_state,
+        )
+        from sibyl.gpu_scheduler import register_running_tasks
+
+        o = make_orchestrator(stage="experiment_cycle", gpu_poll_enabled=False)
+        tasks = [
+            {"id": "a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 600},
+        ]
+        o.ws.write_file("plan/task_plan.json", json.dumps({"tasks": tasks}))
+
+        state = ExperimentState()
+        register_task(state, "a", gpu_ids=[0])
+        save_experiment_state(o.ws.active_root, state)
+        register_running_tasks(o.ws.active_root, {"a": [0]})
+
+        action = o.get_next_action()
+        assert action["action_type"] == "experiment_wait"
+        assert action["experiment_monitor"]["poll_interval_sec"] == 600  # 10 min
+
+    def test_schedules_new_batch_when_pending_tasks_exist(self, make_orchestrator):
+        """When some tasks are running but others are pending, schedule new batch."""
+        from sibyl.experiment_recovery import (
+            ExperimentState, register_task, save_experiment_state,
+        )
+        from sibyl.gpu_scheduler import register_running_tasks
+
+        o = make_orchestrator(stage="experiment_cycle", gpu_poll_enabled=False)
+        tasks = [
+            {"id": "a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 60},
+            {"id": "b", "depends_on": [], "gpu_count": 1, "estimated_minutes": 60},
+        ]
+        o.ws.write_file("plan/task_plan.json", json.dumps({"tasks": tasks}))
+
+        # Only "a" is running; "b" is still pending
+        state = ExperimentState()
+        register_task(state, "a", gpu_ids=[0])
+        save_experiment_state(o.ws.active_root, state)
+        register_running_tasks(o.ws.active_root, {"a": [0]})
+
+        action = o.get_next_action()
+        # Should schedule "b", not return experiment_wait
+        assert action["action_type"] in ("skill", "skills_parallel")
+
+    def test_does_not_return_gpu_poll_when_experiments_running(self, make_orchestrator):
+        """Bug fix: gpu_poll should NOT be returned when experiments are already running."""
+        from sibyl.experiment_recovery import (
+            ExperimentState, register_task, save_experiment_state,
+        )
+        from sibyl.gpu_scheduler import register_running_tasks
+
+        o = make_orchestrator(stage="experiment_cycle", gpu_poll_enabled=True)
+        tasks = [
+            {"id": "a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 60},
+        ]
+        o.ws.write_file("plan/task_plan.json", json.dumps({"tasks": tasks}))
+
+        state = ExperimentState()
+        register_task(state, "a", gpu_ids=[0])
+        save_experiment_state(o.ws.active_root, state)
+        register_running_tasks(o.ws.active_root, {"a": [0]})
+
+        action = o.get_next_action()
+        # Must NOT be gpu_poll — experiments are already running!
+        assert action["action_type"] == "experiment_wait"
+        assert action["action_type"] != "gpu_poll"
+
+
+# ══════════════════════════════════════════════
 # CLI: cli_recover_experiments
 # ══════════════════════════════════════════════
 

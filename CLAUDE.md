@@ -49,6 +49,7 @@ Sibyl 的所有 agent 角色已封装为 `context: fork` skill，运行在独立
 | `agents_parallel` | 遗留：cross-critique 仍用此方式（6 个动态 prompt） |
 | `bash` | 执行 shell 命令 |
 | `gpu_poll` | GPU 轮询等待（见下方说明） |
+| `experiment_wait` | 实验运行中，自适应轮询等待完成（见下方说明） |
 | `done` / `paused` | 终止/暂停 |
 
 ### GPU 轮询（`gpu_poll` action）
@@ -84,6 +85,16 @@ Sibyl 的所有 agent 角色已封装为 `context: fork` skill，运行在独立
 - `gpu_progress.json` 新增 `running` map: 跟踪运行中任务的 GPU 占用
 - `register_running_tasks()` / `unregister_running_task()`: 注册/注销运行中任务
 - `get_next_batch()` 同时排除 completed 和 running 任务
+
+### 实验等待轮询（`experiment_wait` action）
+当实验已在远程运行且无新任务可调度时，orchestrator 返回 `action_type: "experiment_wait"`：
+- **区别于 `gpu_poll`**: `gpu_poll` 等待空闲 GPU 以启动实验，`experiment_wait` 等待已运行的实验完成
+- **绝对不暂停**: 系统必须持续轮询直到所有任务完成，不调用 `cli_pause`
+- **自适应间隔**: 根据预计剩余时间动态调整（<30min→2min, 30-120min→5min, >120min→10min）
+- **低 token 消耗**: 轮询等待期间使用 sleep，不做 LLM 推理
+- **状态面板**: 每次轮询后调用 `cli_experiment_status` 打印进度横幅
+- **动态调度**: 检测到任务完成后调用 `cli_dispatch_tasks` 派发排队任务
+- Action 包含 `experiment_monitor` 字段: `check_cmd`(DONE 检查), `pid_check_cmd`(进程存活), `progress_check_cmd`(详细进度), `status_cmd`(状态面板), `poll_interval_sec`(轮询间隔)
 
 ### 实验状态追踪与恢复（`experiment_state.json`）
 - `exp/experiment_state.json` 是实验任务生命周期的权威源（source of truth）

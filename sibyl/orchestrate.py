@@ -245,7 +245,7 @@ class AgentTask:
 @dataclass
 class Action:
     """An action for the main Claude Code session to execute."""
-    action_type: str  # "skill", "skills_parallel", "agents_parallel", "agent_single", "team", "bash", "gpu_poll", "done", "paused"
+    action_type: str  # "skill", "skills_parallel", "agents_parallel", "agent_single", "team", "bash", "gpu_poll", "experiment_wait", "done", "paused"
     agents: list[dict] | None = None  # for legacy agent actions
     skills: list[dict] | None = None  # for fork skill actions: [{"name": "sibyl-xxx", "args": "..."}]
     team: dict | None = None  # for Agent Teams: {"prompt": "...", "teammates": [{"role": "...", "prompt": "..."}], "require_plan_approval": bool}
@@ -744,7 +744,47 @@ class FarsOrchestrator:
         """
         from sibyl.gpu_scheduler import (
             get_batch_info, validate_task_plan, read_poll_result,
+            get_running_gpu_ids, _load_progress,
         )
+
+        # --- Check if experiments are already running (must be BEFORE gpu_poll) ---
+        from sibyl.experiment_recovery import (
+            load_experiment_state as _load_exp_state,
+            get_running_tasks as _get_exp_running,
+        )
+        _exp_state = _load_exp_state(self.ws.active_root)
+        _exp_running = _get_exp_running(_exp_state)
+        _running_gpus = get_running_gpu_ids(self.ws.active_root)
+
+        if _exp_running or _running_gpus:
+            # Experiments already launched — check if any new tasks are schedulable
+            _completed_set, _, _, _ = _load_progress(self.ws.active_root)
+            # Sync completed tasks from gpu_progress to experiment_state
+            import datetime as _dt_batch
+            _changed = False
+            for tid in list(_exp_running):
+                if tid in _completed_set:
+                    _exp_state.tasks[tid]["status"] = "completed"
+                    _exp_state.tasks[tid]["completed_at"] = _dt_batch.datetime.now().isoformat()
+                    _changed = True
+            if _changed:
+                from sibyl.experiment_recovery import save_experiment_state as _save_exp_state
+                _save_exp_state(self.ws.active_root, _exp_state)
+                # Re-check after sync
+                _exp_running = _get_exp_running(_exp_state)
+                _running_gpus = get_running_gpu_ids(self.ws.active_root)
+
+            # If tasks still running, check for dispatchable new tasks
+            if _exp_running or _running_gpus:
+                _effective_gpus = list(range(self.config.max_gpus))
+                _info = get_batch_info(
+                    self.ws.active_root, _effective_gpus, mode,
+                    gpus_per_task=self.config.gpus_per_task,
+                )
+                _has_pending = _info is not None and len(_info["batch"]) > 0
+                if not _has_pending:
+                    # No new tasks to schedule → return experiment_wait action
+                    return self._experiment_wait_action(stage, _exp_running, _running_gpus)
 
         # --- GPU availability check (shared server) ---
         if self.config.gpu_poll_enabled:
@@ -1044,6 +1084,134 @@ class FarsOrchestrator:
                 f"{'无限等待' if self.config.gpu_poll_max_attempts == 0 else f'最多 {self.config.gpu_poll_max_attempts} 次'}）{mode_desc}"
             ),
             stage=stage,
+        )
+
+    def _experiment_wait_action(self, stage: str, running_tasks: list[str],
+                                running_gpus: list[int]) -> Action:
+        """Return an experiment_wait action when experiments are running.
+
+        Unlike gpu_poll (which waits for FREE GPUs to launch experiments),
+        this action monitors RUNNING experiments until they complete.
+        The main session should periodically check status via SSH and print
+        the experiment status banner, without pausing the project.
+
+        Poll interval is adaptive:
+        - Estimate remaining time from experiment_state / gpu_progress
+        - Short remaining (<30 min): poll every 2 min
+        - Medium remaining (30-120 min): poll every 5 min
+        - Long remaining (>120 min): poll every 10 min
+        """
+        import datetime as _dt_wait
+        from sibyl.gpu_scheduler import _load_progress
+        from sibyl.experiment_recovery import load_experiment_state
+
+        exp_state = load_experiment_state(self.ws.active_root)
+        _, _, running_map, _ = _load_progress(self.ws.active_root)
+
+        # Estimate max remaining time across all running tasks
+        task_plan_path = self.ws.active_path("plan/task_plan.json")
+        task_estimates: dict[str, int] = {}
+        if task_plan_path.exists():
+            try:
+                plan = json.loads(task_plan_path.read_text(encoding="utf-8"))
+                for t in plan.get("tasks", []):
+                    task_estimates[t["id"]] = t.get("estimated_minutes", 0)
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        max_remaining_min = 0
+        task_status_lines = []
+        for tid in running_tasks:
+            est = task_estimates.get(tid, 0)
+            started = ""
+            gpus = []
+            if tid in running_map:
+                started = running_map[tid].get("started_at", "")
+                gpus = running_map[tid].get("gpu_ids", [])
+            elif tid in exp_state.tasks:
+                started = exp_state.tasks[tid].get("started_at", "")
+                gpus = exp_state.tasks[tid].get("gpu_ids", [])
+
+            elapsed_min = 0
+            if started:
+                try:
+                    start_dt = _dt_wait.datetime.fromisoformat(started)
+                    elapsed_min = int(
+                        (_dt_wait.datetime.now() - start_dt).total_seconds() / 60
+                    )
+                except (ValueError, TypeError):
+                    pass
+
+            remaining = max(0, est - elapsed_min) if est > 0 else 60  # default 1h if unknown
+            max_remaining_min = max(max_remaining_min, remaining)
+            gpu_str = ",".join(str(g) for g in gpus) if gpus else "?"
+            task_status_lines.append(
+                f"{tid} -> GPU[{gpu_str}] (elapsed {elapsed_min}min"
+                + (f", ~{remaining}min left" if est > 0 else "")
+                + ")"
+            )
+
+        # Adaptive poll interval
+        if max_remaining_min <= 30:
+            poll_interval_sec = 120  # 2 min
+        elif max_remaining_min <= 120:
+            poll_interval_sec = 300  # 5 min
+        else:
+            poll_interval_sec = 600  # 10 min
+
+        # Build SSH check commands
+        remote_dir = f"{self.config.remote_base}/projects/{self.ws.name}"
+        all_running = running_tasks or [
+            tid for tid, info in running_map.items()
+        ]
+        done_checks = " && ".join(
+            f'test -f {remote_dir}/exp/results/{tid}_DONE && echo "{tid}:DONE" || echo "{tid}:PENDING"'
+            for tid in all_running
+        )
+        # Also check if processes are alive (via PID files)
+        pid_checks = " && ".join(
+            f'pid=$(cat {remote_dir}/exp/results/{tid}.pid 2>/dev/null) && '
+            f'(ps -p $pid > /dev/null 2>&1 && echo "{tid}:ALIVE:$pid" || echo "{tid}:DEAD:$pid") || '
+            f'echo "{tid}:NO_PID"'
+            for tid in all_running
+        )
+
+        # Progress check (read _PROGRESS.json files)
+        progress_checks = " && ".join(
+            f'cat {remote_dir}/exp/results/{tid}_PROGRESS.json 2>/dev/null || echo "null"'
+            for tid in all_running
+        )
+
+        task_summary = "\n    ".join(task_status_lines)
+        desc = (
+            f"实验运行中（{len(all_running)} 个任务），"
+            f"预计剩余 ~{max_remaining_min}min，"
+            f"每 {poll_interval_sec // 60}min 轮询一次"
+        )
+
+        return Action(
+            action_type="experiment_wait",
+            description=desc,
+            stage=stage,
+            estimated_minutes=max_remaining_min,
+            experiment_monitor={
+                "ssh_connection": self.config.ssh_server,
+                "check_cmd": done_checks,
+                "pid_check_cmd": pid_checks,
+                "progress_check_cmd": progress_checks,
+                "remote_dir": remote_dir,
+                "task_ids": all_running,
+                "poll_interval_sec": poll_interval_sec,
+                "max_remaining_min": max_remaining_min,
+                "task_status": task_status_lines,
+                "dynamic_dispatch": True,
+                "dispatch_cmd": build_repo_python_cli_command(
+                    "dispatch", self.workspace_path,
+                ),
+                "status_cmd": build_repo_python_cli_command(
+                    "experiment_status", self.workspace_path,
+                ),
+            },
         )
 
     def _action_result_debate(self, ws: str) -> Action:
