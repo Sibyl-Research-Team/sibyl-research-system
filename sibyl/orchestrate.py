@@ -226,14 +226,18 @@ class FarsOrchestrator:
 
     def record_result(self, stage: str, result: str = "",
                       score: float | None = None):
-        """Record the result of a completed stage and advance state."""
+        """Record the result of a completed stage and advance state.
+
+        Idempotent: if the stage has already been advanced past, this is a
+        no-op. This handles retries, duplicate calls, and interleaved stages
+        (e.g. lark_sync) that may have already been auto-advanced.
+        """
         if stage == "done":
             raise ValueError("Cannot record result for terminal stage 'done'")
         current = self.ws.get_status().stage
         if stage != current:
-            raise ValueError(
-                f"Stage mismatch: recording '{stage}' but current is '{current}'"
-            )
+            # Already advanced past this stage — idempotent no-op
+            return
 
         # Post-reflection hook: process reflection agent outputs
         if stage == "reflection":

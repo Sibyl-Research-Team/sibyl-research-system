@@ -15,11 +15,32 @@
 - `{workspace}/writing/figures/` — 图表文件
 
 ### 步骤
-1. 将论文从中文翻译为学术英文
+1. 将论文翻译为学术英文（如已是英文则直接排版）
 2. 使用 NeurIPS LaTeX 模板排版
 3. 生成 BibTeX 参考文献
-4. 在正确位置插入图表引用
-5. 编译为 PDF
+4. **处理所有视觉元素**（见下方 Figure 处理）
+5. 在正确位置插入图表引用
+6. 编译为 PDF
+
+### Figure 处理（CRITICAL）
+
+1. **读取 figure 清单**: 解析 paper.md 末尾的 `## Figures and Tables` 及 `{workspace}/writing/visual_audit.md`
+2. **收集 figure 文件**: 扫描 `{workspace}/writing/figures/` 获取所有 .pdf/.png 文件
+3. **架构图转 TikZ**: 读取 `*_desc.md` 文件，将架构/流程图描述转为 TikZ 代码
+4. **运行生成脚本**: 如有 `gen_*.py` 脚本未执行（对应 PDF 不存在），用 `.venv/bin/python3` 运行
+5. **复制到 latex/**: 将所有 figure PDF/PNG 复制到 `{workspace}/writing/latex/figures/`
+6. **插入引用**: 在 LaTeX 中使用 `\includegraphics` 和 `\begin{figure}` 环境
+
+```latex
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figures/figure_id.pdf}
+\caption{Descriptive caption from paper.md}
+\label{fig:figure_id}
+\end{figure}
+```
+
+**表格**: 使用 `booktabs` 包（`\toprule`, `\midrule`, `\bottomrule`），加粗最优值。
 
 ### NeurIPS 模板
 

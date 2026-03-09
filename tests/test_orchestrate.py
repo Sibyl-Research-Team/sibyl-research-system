@@ -133,10 +133,11 @@ class TestRecordResult:
         with pytest.raises(ValueError, match="terminal stage"):
             o.record_result("done")
 
-    def test_rejects_stage_mismatch(self, make_orchestrator):
+    def test_stage_mismatch_is_idempotent_noop(self, make_orchestrator):
+        """Mismatched stage is a no-op (already advanced past)."""
         o = make_orchestrator(stage="planning")
-        with pytest.raises(ValueError, match="Stage mismatch"):
-            o.record_result("literature_search")
+        o.record_result("literature_search")  # should not raise
+        assert o.ws.get_status().stage == "planning"  # unchanged
 
     def test_writes_score_log(self, make_orchestrator):
         o = make_orchestrator(stage="literature_search")
