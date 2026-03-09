@@ -108,6 +108,8 @@ Replace `/path/to/sibyl-research-system` with your actual local path.
 
 ## First Research Project
 
+Need a realistic end-to-end smoke test first? Use the fixed tiny demo in [../demos/remote_parallel_smoke/README.md](../demos/remote_parallel_smoke/README.md). It scaffolds a project that exercises remote SSH execution, GPU polling, experiment monitoring, parallel tasks, and the writing/LaTeX chain against pre-existing remote checkpoints.
+
 ### 1. Initialize
 
 ```bash
