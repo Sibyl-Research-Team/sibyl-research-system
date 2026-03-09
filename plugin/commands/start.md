@@ -235,9 +235,10 @@ LOOP:
             这一步确保 _natural_next_stage 检测到所有任务已完成，正确推进到下一阶段。
        ```
        **轮询间隔是自适应的**（由 orchestrator 根据预计剩余时间计算）：
-       - 剩余 <30min: 每 2min
-       - 剩余 30-120min: 每 5min
-       - 剩余 >120min: 每 10min
+       - 剩余 ≤15min: 每 5min
+       - 剩余 15-60min: 每 10min
+       - 剩余 1-4h: 每 15min
+       - 剩余 >4h: 每 30min
        注意：轮询等待期间使用 sleep 而非 LLM 推理，不消耗 token。
      "gpu_poll": GPU 轮询等待（所有 GPU 被占用）。
        按 CLAUDE.md 中的 GPU 轮询协议执行，每次轮询时输出状态提示：

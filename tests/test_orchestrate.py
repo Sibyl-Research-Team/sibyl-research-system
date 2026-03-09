@@ -2144,10 +2144,10 @@ class TestExperimentWaitAction:
 
         action = o.get_next_action()
         assert action["action_type"] == "experiment_wait"
-        assert action["experiment_monitor"]["poll_interval_sec"] == 120  # 2 min
+        assert action["experiment_monitor"]["poll_interval_sec"] == 600  # 10 min (10min remaining → ≤60min tier)
 
     def test_experiment_wait_adaptive_interval_long(self, make_orchestrator):
-        """Long remaining time → 10min poll interval."""
+        """Long remaining time → 30min poll interval."""
         from sibyl.experiment_recovery import (
             ExperimentState, register_task, save_experiment_state,
         )
@@ -2166,7 +2166,7 @@ class TestExperimentWaitAction:
 
         action = o.get_next_action()
         assert action["action_type"] == "experiment_wait"
-        assert action["experiment_monitor"]["poll_interval_sec"] == 600  # 10 min
+        assert action["experiment_monitor"]["poll_interval_sec"] == 1800  # 30 min (>4h)
 
     def test_schedules_new_batch_when_pending_tasks_exist(self, make_orchestrator):
         """When some tasks are running but others are pending, schedule new batch."""

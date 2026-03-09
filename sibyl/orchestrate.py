@@ -1168,13 +1168,15 @@ class FarsOrchestrator:
                 + ")"
             )
 
-        # Adaptive poll interval
-        if max_remaining_min <= 30:
-            poll_interval_sec = 120  # 2 min
-        elif max_remaining_min <= 120:
-            poll_interval_sec = 300  # 5 min
+        # Adaptive poll interval — longer intervals to minimize token usage
+        if max_remaining_min <= 15:
+            poll_interval_sec = 300    # 5 min (nearly done)
+        elif max_remaining_min <= 60:
+            poll_interval_sec = 600    # 10 min
+        elif max_remaining_min <= 240:
+            poll_interval_sec = 900    # 15 min
         else:
-            poll_interval_sec = 600  # 10 min
+            poll_interval_sec = 1800   # 30 min (very long experiments)
 
         # Build SSH check commands
         remote_dir = f"{self.config.remote_base}/projects/{self.ws.name}"
@@ -1196,10 +1198,12 @@ class FarsOrchestrator:
             for tid in all_running
         )
 
+        task_detail = "; ".join(task_status_lines[:5])  # cap at 5 for readability
         desc = (
             f"实验运行中（{len(all_running)} 个任务），"
             f"预计剩余 ~{max_remaining_min}min，"
-            f"每 {poll_interval_sec // 60}min 轮询一次"
+            f"每 {poll_interval_sec // 60}min 轮询一次\n"
+            f"  {task_detail}"
         )
 
         return Action(
