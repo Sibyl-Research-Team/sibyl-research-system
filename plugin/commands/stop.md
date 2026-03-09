@@ -20,6 +20,11 @@ argument-hint: "<project>"
 cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_pause; cli_pause('workspaces/$ARGUMENTS', 'user_stop')"
 ```
 
+1.5. 停止 Sentinel 看门狗：
+```bash
+echo '{"stop": true}' > workspaces/$ARGUMENTS/sentinel_stop.json
+```
+
 2. 取消 Ralph Loop（关闭 stop hook 循环）：
    使用 Skill 工具调用 `ralph-loop:cancel-ralph`
 

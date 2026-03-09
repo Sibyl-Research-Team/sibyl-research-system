@@ -53,6 +53,12 @@ cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_init_f
 cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_init; cli_init('TOPIC')"
 ```
 2. 记录返回的 `workspace_path` 和 `project_name`
+
+2.5. **保存 Session ID 供 Sentinel 使用**：
+   ```bash
+   cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_sentinel_session; cli_sentinel_session('WORKSPACE_PATH', '${CLAUDE_CODE_SESSION_ID:-}')"
+   ```
+
 3. **自动启动 Ralph Loop 持续迭代**：
 
    首先，将迭代指令写入临时文件（避免多行 prompt 导致 shell 解析失败）：
@@ -79,6 +85,24 @@ cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_init; 
 
    如果 Ralph Loop 不可用（插件错误），则手动执行编排循环。
 
+4. **启动 Sentinel 看门狗**（在 tmux 的 sibling pane 中，确保实验轮询不中断）：
+   ```bash
+   # 检测当前是否在 tmux 中
+   if [ -n "${TMUX:-}" ]; then
+     SIBYL_ROOT="$(cd /Users/cwan0785/sibyl-system && pwd)"
+     CURRENT_PANE=$(tmux display-message -p '#{pane_id}')
+     # 在当前 window 右侧创建窄 pane 运行 sentinel
+     tmux split-window -h -l 60 \
+       "bash $SIBYL_ROOT/sibyl/sentinel.sh WORKSPACE_PATH $CURRENT_PANE 120"
+     # 焦点切回主 pane
+     tmux select-pane -t "$CURRENT_PANE"
+     echo "Sentinel 已启动（右侧 pane）"
+   else
+     echo "未检测到 tmux，Sentinel 未启动。建议在 tmux session 中运行。"
+   fi
+   ```
+   注意：将 WORKSPACE_PATH 替换为实际路径。
+
 ## CLI API 参考（重要：只使用以下函数，不要猜测其他函数名）
 
 ```python
@@ -92,6 +116,8 @@ from sibyl.orchestrate import cli_init       # 初始化（topic 模式）
 from sibyl.orchestrate import cli_init_from_spec # 初始化（spec 模式）
 from sibyl.orchestrate import cli_dispatch_tasks # 动态调度: 空闲 GPU 派发排队任务
 from sibyl.orchestrate import cli_experiment_status # 实验状态面板（含进度、运行任务、预估时间）
+from sibyl.orchestrate import cli_sentinel_session  # 保存 session ID 供 Sentinel 使用
+from sibyl.orchestrate import cli_sentinel_config   # 获取 Sentinel 配置状态
 ```
 
 **不存在的函数**：`load_state`、`get_state`、`get_project` 等。查状态用 `cli_status`。

@@ -25,6 +25,11 @@ cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_resume
 cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_status; cli_status('workspaces/$ARGUMENTS')"
 ```
 
+2.5. **更新 Session ID 供 Sentinel 使用**：
+   ```bash
+   cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_sentinel_session; cli_sentinel_session('workspaces/$ARGUMENTS', '${CLAUDE_CODE_SESSION_ID:-}')"
+   ```
+
 3. **自动启动 Ralph Loop 持续迭代**：
 
    首先，将迭代指令写入临时文件：
@@ -51,6 +56,20 @@ cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_status
 
    如果 Ralph Loop 不可用（插件错误），则手动执行编排循环。
 
+4. **启动 Sentinel 看门狗**（在 tmux 的 sibling pane 中）：
+   ```bash
+   if [ -n "${TMUX:-}" ]; then
+     SIBYL_ROOT="$(cd /Users/cwan0785/sibyl-system && pwd)"
+     CURRENT_PANE=$(tmux display-message -p '#{pane_id}')
+     tmux split-window -h -l 60 \
+       "bash $SIBYL_ROOT/sibyl/sentinel.sh workspaces/$ARGUMENTS $CURRENT_PANE 120"
+     tmux select-pane -t "$CURRENT_PANE"
+     echo "Sentinel 已启动（右侧 pane）"
+   else
+     echo "未检测到 tmux，Sentinel 未启动。建议在 tmux session 中运行。"
+   fi
+   ```
+
 ## CLI API 参考（重要：只使用以下函数）
 
 ```python
@@ -62,6 +81,8 @@ from sibyl.orchestrate import cli_status     # 查看项目状态
 from sibyl.orchestrate import cli_list_projects  # 列出所有项目
 from sibyl.orchestrate import cli_dispatch_tasks # 动态调度: 空闲 GPU 派发排队任务
 from sibyl.orchestrate import cli_experiment_status # 实验状态面板（含进度、运行任务、预估时间）
+from sibyl.orchestrate import cli_sentinel_session  # 保存 session ID 供 Sentinel 使用
+from sibyl.orchestrate import cli_sentinel_config   # 获取 Sentinel 配置状态
 ```
 
 **不存在的函数**：`load_state`、`get_state`、`get_project` 等。查状态用 `cli_status`。

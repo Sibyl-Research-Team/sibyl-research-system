@@ -13,6 +13,9 @@ Complete installation and first-run guide for Sibyl Research System.
 | Node.js | 18+ | Required for npm-based MCP servers |
 | Git | Any | Version control for workspaces |
 | GPU Server | SSH accessible | For experiment execution |
+| **tmux** | Any | **Strongly recommended** — persistent sessions + Sentinel auto-recovery |
+
+> **tmux** enables the Sentinel watchdog to automatically restart Claude Code if it crashes or goes idle during long experiments. Install: `brew install tmux` (macOS) / `apt install tmux` (Linux). Always run Sibyl inside a tmux session: `tmux new -s sibyl`.
 
 ### API Keys
 
@@ -84,10 +87,13 @@ Sibyl relies on several MCP servers. `setup.sh` configures the required ones aut
 
 ## Load Plugin
 
-Sibyl is provided as a **Claude Code Plugin**:
+Sibyl is provided as a **Claude Code Plugin**. **Always run inside tmux** for persistent sessions:
 
 ```bash
-# Recommended: specify plugin dir at startup
+# Start a tmux session (or attach to existing)
+tmux new -s sibyl
+
+# Launch Claude Code with Sibyl plugin
 claude --plugin-dir /path/to/sibyl-research-system/plugin --dangerously-skip-permissions
 ```
 

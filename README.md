@@ -34,6 +34,7 @@ The fastest way to set up Sibyl is to let Claude Code do it for you. Clone the r
 ```bash
 git clone https://github.com/Sibyl-Research/sibyl-research-system.git
 cd sibyl-research-system
+tmux new -s sibyl                                           # recommended: persistent session
 claude --plugin-dir ./plugin --dangerously-skip-permissions
 ```
 
@@ -57,6 +58,7 @@ Claude will automatically check your environment, install dependencies, configur
 - GPU server with SSH access
 - `ANTHROPIC_API_KEY` environment variable
 - `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1` environment variable
+- **tmux** (strongly recommended) — enables persistent sessions and automatic recovery via Sentinel watchdog. Install: `brew install tmux` (macOS) / `apt install tmux` (Linux)
 
 #### 1. Install
 
@@ -116,6 +118,9 @@ Use `ssh_server: "default"` when `ssh-mcp-server` was registered with explicit `
 #### 4. Run
 
 ```bash
+# Strongly recommended: run inside tmux for persistent sessions
+tmux new -s sibyl
+
 # Strongly recommended: use --dangerously-skip-permissions for fully autonomous operation
 claude --plugin-dir ./plugin --dangerously-skip-permissions
 
@@ -123,6 +128,8 @@ claude --plugin-dir ./plugin --dangerously-skip-permissions
 /sibyl-research:init              # Create a research project
 /sibyl-research:start <project>   # Start autonomous research loop
 ```
+
+> **Why tmux?** Sibyl experiments can run for hours. Running inside tmux ensures the session persists through terminal disconnections. The Sentinel watchdog (auto-launched by `/sibyl-research:start`) runs in a sibling tmux pane and automatically restarts Claude Code if it crashes or goes idle — enabling truly unattended autonomous research.
 
 > **Why `--dangerously-skip-permissions`?** Sibyl orchestrates 20+ agents across 19 pipeline stages, each involving dozens of tool calls (file I/O, SSH commands, MCP server calls, sub-agent spawning). Without this flag, Claude Code will prompt for permission on nearly every operation, making autonomous research impossible — you'd need to approve hundreds of prompts per iteration. The flag skips all permission confirmations, enabling true end-to-end automation.
 >

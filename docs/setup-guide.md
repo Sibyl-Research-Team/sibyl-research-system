@@ -183,13 +183,47 @@ codex_enabled: false
 
 ---
 
-## Step 6: Plugin Registration
+## Step 6: tmux (Strongly Recommended)
 
-**Goal**: User knows how to launch Claude Code with Sibyl plugin.
+**Goal**: tmux is installed for persistent sessions and Sentinel auto-recovery.
+
+**Check**:
+```bash
+tmux -V
+```
+
+**Fix if missing**:
+```bash
+# macOS
+brew install tmux
+
+# Linux (Debian/Ubuntu)
+sudo apt install tmux
+
+# Linux (RHEL/CentOS)
+sudo yum install tmux
+```
+
+**Tell the user**: Always start Sibyl inside a tmux session. This enables the Sentinel watchdog to automatically restart Claude Code if it crashes, goes idle, or gets interrupted during long-running experiments.
+
+```bash
+tmux new -s sibyl
+```
+
+To detach: `Ctrl+B` then `D`. To reattach: `tmux attach -t sibyl`.
+
+---
+
+## Step 7: Plugin Registration
+
+**Goal**: User knows how to launch Claude Code with Sibyl plugin inside tmux.
 
 **Tell the user**:
 ```bash
-# Recommended for first-time setup and local development
+# First, start a tmux session
+tmux new -s sibyl
+
+# Then launch Claude Code with Sibyl plugin
 # --dangerously-skip-permissions is strongly recommended for fully autonomous operation
 claude --plugin-dir /path/to/sibyl-research-system/plugin --dangerously-skip-permissions
 ```
@@ -202,7 +236,7 @@ Replace `/path/to/sibyl-research-system` with the actual clone path.
 
 ---
 
-## Step 7: Remote Server Initialization (Optional)
+## Step 8: Remote Server Initialization (Optional)
 
 **Goal**: Remote server has correct directory structure and Python environment.
 
@@ -227,7 +261,7 @@ pip install torch transformers datasets matplotlib numpy scikit-learn
 
 ---
 
-## Step 8: Verify Complete Setup
+## Step 9: Verify Complete Setup
 
 Run these checks to confirm everything works:
 
@@ -235,9 +269,10 @@ Run these checks to confirm everything works:
 2. **Config file**: `cat config.yaml` — fresh installs should show `ssh_server`, `remote_base`, `max_gpus`, `language`, and `codex_enabled: false`
 3. **MCP servers**: Restart Claude Code and check that `mcp__ssh-mcp-server__list-servers` and `mcp__arxiv-mcp-server__search_papers` are available
 4. **Codex (recommended on your own machine once installed)**: after installing Codex MCP and setting `OPENAI_API_KEY`, flip `codex_enabled: true` in your local `config.yaml` and verify `mcp__codex__codex` is available. That file exists in your working tree, but Git does not track or commit it
-5. **Plugin**: `/sibyl-research:status` runs without error
+5. **tmux**: `tmux -V` returns a version — needed for Sentinel watchdog auto-recovery
+6. **Plugin**: `/sibyl-research:status` runs without error
 
-If all pass, remind the user to launch with `--dangerously-skip-permissions` for fully autonomous operation, and start researching:
+If all pass, remind the user to launch inside tmux with `--dangerously-skip-permissions` for fully autonomous operation, and start researching:
 ```
 /sibyl-research:init          # Create a project
 /sibyl-research:start <name>  # Start autonomous research
