@@ -9,6 +9,8 @@ from sibyl.experiment_recovery import (
     load_experiment_state,
     save_experiment_state,
     register_task,
+    generate_detection_script,
+    parse_detection_output,
 )
 
 
@@ -52,3 +54,57 @@ class TestExperimentStateIO:
         assert task["gpu_ids"] == [0, 1]
         assert task["pid_file"] == "/tmp/train.pid"
         assert "registered_at" in task
+
+
+class TestRecoveryScriptGeneration:
+    """Task 2: SSH batch detection script generation and parsing."""
+
+    def test_generate_detection_script(self):
+        script = generate_detection_script(
+            "/home/user/project", ["train_a", "train_b"]
+        )
+        assert 'cd "/home/user/project"' in script
+        assert "train_a" in script
+        assert "train_b" in script
+        assert "DONE:" in script
+        assert "RUNNING:" in script
+        assert "DEAD:" in script
+        assert "UNKNOWN:" in script
+
+    def test_parse_detection_output_done(self):
+        output = 'DONE:train_a:{"exit_code": 0, "elapsed": 120}'
+        result = parse_detection_output(output)
+        assert "train_a" in result
+        assert result["train_a"]["detected_status"] == "done"
+        assert result["train_a"]["done_info"]["exit_code"] == 0
+
+    def test_parse_detection_output_running(self):
+        output = 'RUNNING:train_a:{"epoch": 5, "loss": 0.3}'
+        result = parse_detection_output(output)
+        assert result["train_a"]["detected_status"] == "running"
+        assert result["train_a"]["progress"]["epoch"] == 5
+
+    def test_parse_detection_output_dead(self):
+        output = "DEAD:train_a:12345"
+        result = parse_detection_output(output)
+        assert result["train_a"]["detected_status"] == "dead"
+        assert result["train_a"]["dead_pid"] == "12345"
+
+    def test_parse_detection_output_unknown(self):
+        output = "UNKNOWN:train_a"
+        result = parse_detection_output(output)
+        assert result["train_a"]["detected_status"] == "unknown"
+
+    def test_parse_multiline_output(self):
+        output = (
+            'DONE:train_a:{"exit_code": 0}\n'
+            'RUNNING:train_b:{"epoch": 3}\n'
+            "DEAD:train_c:99999\n"
+            "UNKNOWN:train_d\n"
+        )
+        result = parse_detection_output(output)
+        assert len(result) == 4
+        assert result["train_a"]["detected_status"] == "done"
+        assert result["train_b"]["detected_status"] == "running"
+        assert result["train_c"]["detected_status"] == "dead"
+        assert result["train_d"]["detected_status"] == "unknown"
