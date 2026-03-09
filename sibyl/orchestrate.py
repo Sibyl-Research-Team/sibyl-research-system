@@ -451,6 +451,25 @@ class FarsOrchestrator:
         score_str = f" (score={score})" if score is not None else ""
         self.ws.git_commit(f"sibyl: complete {stage}{score_str}")
 
+        # Trigger background Feishu sync if enabled
+        _NO_SYNC_TRIGGER = {"init", "quality_gate", "done", "lark_sync"}
+        if (self.config.lark_enabled
+                and stage not in _NO_SYNC_TRIGGER):
+            self._append_pending_sync(stage)
+
+    def _append_pending_sync(self, stage: str):
+        """Append a sync trigger to lark_sync/pending_sync.jsonl."""
+        import datetime
+        entry = {
+            "trigger_stage": stage,
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "iteration": self.ws.get_status().iteration,
+        }
+        sync_dir = self.ws.root / "lark_sync"
+        sync_dir.mkdir(parents=True, exist_ok=True)
+        with open(sync_dir / "pending_sync.jsonl", "a") as f:
+            f.write(json.dumps(entry) + "\n")
+
     def get_status(self) -> dict:
         """Get current project status."""
         meta = self.ws.get_project_metadata()
@@ -1797,7 +1816,12 @@ def cli_record(workspace_path: str, stage: str, result: str = "",
     """CLI: Record stage result."""
     o = FarsOrchestrator(workspace_path)
     o.record_result(stage, result, score)
-    print(json.dumps({"status": "ok", "new_stage": o.ws.get_status().stage}))
+    output = {"status": "ok", "new_stage": o.ws.get_status().stage}
+    # Signal main session to launch background sync agent
+    _NO_SYNC_TRIGGER = {"init", "quality_gate", "done", "lark_sync"}
+    if o.config.lark_enabled and stage not in _NO_SYNC_TRIGGER:
+        output["sync_requested"] = True
+    print(json.dumps(output))
 
 
 def cli_pause(workspace_path: str, reason: str = "rate_limit"):
@@ -1817,7 +1841,15 @@ def cli_resume(workspace_path: str):
 def cli_status(workspace_path: str):
     """CLI: Get project status."""
     o = FarsOrchestrator(workspace_path)
-    print(json.dumps(o.get_status(), indent=2))
+    status = o.get_status()
+    # Include Feishu sync status if available
+    sync_status_path = Path(workspace_path) / "lark_sync" / "sync_status.json"
+    if sync_status_path.exists():
+        try:
+            status["lark_sync_status"] = json.loads(sync_status_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            status["lark_sync_status"] = {"error": "corrupted sync_status.json"}
+    print(json.dumps(status, indent=2))
 
 
 def cli_checkpoint(workspace_path: str, stage: str, step_id: str):
