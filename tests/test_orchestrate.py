@@ -61,76 +61,22 @@ class TestStageTransitions:
                 f"After recording {stage}, expected {expected} but got {actual}"
             )
 
-    def test_reflection_to_lark_sync_when_enabled(self, make_orchestrator):
+    def test_reflection_goes_to_quality_gate(self, make_orchestrator):
+        """Without lark_sync stage, reflection goes directly to quality_gate."""
         o = make_orchestrator(stage="reflection", lark_enabled=True)
         o.record_result("reflection")
-        assert o.ws.get_status().stage == "lark_sync"
+        assert o.ws.get_status().stage == "quality_gate"
 
-    def test_reflection_skips_lark_when_disabled(self, make_orchestrator):
+    def test_reflection_to_quality_gate_lark_disabled(self, make_orchestrator):
         o = make_orchestrator(stage="reflection", lark_enabled=False)
         o.record_result("reflection")
         assert o.ws.get_status().stage == "quality_gate"
 
-    def test_per_stage_lark_sync_interleaving(self, make_orchestrator):
-        """When lark_enabled, every stage goes to lark_sync first, then resumes."""
+    def test_stages_advance_directly_without_lark_sync(self, make_orchestrator):
+        """Stages advance directly without interleaved lark_sync."""
         o = make_orchestrator(stage="literature_search", lark_enabled=True)
         o.record_result("literature_search")
-        status = o.ws.get_status()
-        assert status.stage == "lark_sync"
-        assert status.resume_after_sync == "idea_debate"
-
-        # Complete lark_sync → resumes to idea_debate
-        o.record_result("lark_sync")
-        status = o.ws.get_status()
-        assert status.stage == "idea_debate"
-        assert status.resume_after_sync == ""
-
-    def test_lark_sync_not_interleaved_for_experiment_loop(self, make_orchestrator):
-        """When experiment stage loops back to itself, no lark_sync."""
-        o = make_orchestrator(stage="pilot_experiments", lark_enabled=True,
-                              gpu_poll_enabled=False)
-        tasks = [
-            {"id": "a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
-            {"id": "b", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
-        ]
-        o.ws.write_file("plan/task_plan.json", json.dumps({"tasks": tasks}))
-        o.ws.write_file("exp/gpu_progress.json", json.dumps({
-            "completed": ["a"], "failed": []
-        }))
-        o.record_result("pilot_experiments")
-        # Still more batches → stays in pilot_experiments, no sync
-        assert o.ws.get_status().stage == "pilot_experiments"
-
-    def test_lark_sync_after_all_experiments_done(self, make_orchestrator):
-        """When all experiments done, goes to lark_sync before next stage."""
-        o = make_orchestrator(stage="pilot_experiments", lark_enabled=True,
-                              gpu_poll_enabled=False)
-        tasks = [{"id": "a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10}]
-        o.ws.write_file("plan/task_plan.json", json.dumps({"tasks": tasks}))
-        o.ws.write_file("exp/gpu_progress.json", json.dumps({
-            "completed": ["a"], "failed": []
-        }))
-        o.record_result("pilot_experiments")
-        status = o.ws.get_status()
-        assert status.stage == "lark_sync"
-        assert status.resume_after_sync == "experiment_cycle"
-
-    def test_reflection_natural_next_is_lark_sync_no_double(self, make_orchestrator):
-        """Reflection's natural next is lark_sync (pipeline position), no interleaving."""
-        o = make_orchestrator(stage="reflection", lark_enabled=True)
-        o.record_result("reflection")
-        # Should go directly to lark_sync (natural pipeline), not double-sync
-        assert o.ws.get_status().stage == "lark_sync"
-        # After lark_sync completes, should go to quality_gate
-        o.record_result("lark_sync")
-        assert o.ws.get_status().stage == "quality_gate"
-
-    def test_lark_sync_description_shows_resume_target(self, make_orchestrator):
-        """Interleaved lark_sync action description shows where it will resume."""
-        o = make_orchestrator(stage="lark_sync", lark_enabled=True)
-        o.ws.set_resume_after_sync("idea_debate")
-        action = o.get_next_action()
-        assert "idea_debate" in action["description"]
+        assert o.ws.get_status().stage == "idea_debate"
 
     def test_unknown_stage_forces_done(self, make_orchestrator):
         o = make_orchestrator(stage="nonexistent_stage")
@@ -154,11 +100,6 @@ class TestRecordResult:
         o = make_orchestrator(stage="planning")
         with pytest.raises(ValueError, match="Stage mismatch"):
             o.record_result("writing_sections")
-
-    def test_duplicate_lark_sync_is_idempotent_noop(self, make_orchestrator):
-        o = make_orchestrator(stage="idea_debate")
-        o.record_result("lark_sync")
-        assert o.ws.get_status().stage == "idea_debate"
 
     def test_writes_score_log(self, make_orchestrator):
         o = make_orchestrator(stage="literature_search")
@@ -928,7 +869,7 @@ class TestCLI:
         (ws_dir / "status.json").write_text(
             json.dumps({"stage": "init", "started_at": 1.0, "updated_at": 1.0,
                          "iteration": 0, "errors": [], "paused_at": 0.0,
-                         "resume_after_sync": "", "iteration_dirs": False}),
+                         "iteration_dirs": False}),
             encoding="utf-8",
         )
         (ws_dir / "topic.txt").write_text("test", encoding="utf-8")
@@ -948,7 +889,7 @@ class TestCLI:
         (ws_dir / "status.json").write_text(
             json.dumps({"stage": "init", "started_at": 1.0, "updated_at": 1.0,
                          "iteration": 0, "errors": [], "paused_at": 0.0,
-                         "resume_after_sync": "", "iteration_dirs": False}),
+                         "iteration_dirs": False}),
             encoding="utf-8",
         )
         (ws_dir / "topic.txt").write_text("test", encoding="utf-8")
