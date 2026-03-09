@@ -274,3 +274,15 @@ class TestStateSyncWithGpuProgress:
         assert state.tasks["t3"]["status"] == "failed"
         assert state.tasks["t4"]["status"] == "running"
         assert state.tasks["t4"]["gpu_ids"] == [0, 1]
+
+
+class TestMonitorProgressReading:
+    def test_monitor_script_reads_progress(self):
+        from sibyl.gpu_scheduler import experiment_monitor_script
+        script = experiment_monitor_script(
+            ssh_server="cs8000d",
+            remote_project_dir="/home/user/project",
+            task_ids=["task_a"],
+        )
+        assert "_PROGRESS.json" in script
+        assert "progress" in script

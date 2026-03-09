@@ -713,17 +713,31 @@ while true; do
     fi
     PREV_DONE_COUNT=$done_count
 
+    # Read progress for pending (non-DONE) tasks
+    PROGRESS_JSON=""
+    for task_id in "${{ALL_TASKS[@]}}"; do
+        prog=$(ssh {ssh_server} "cat $REMOTE_DIR/exp/results/${{task_id}}_PROGRESS.json 2>/dev/null || echo ''" 2>/dev/null)
+        if [ -n "$prog" ]; then
+            entry="\\"$task_id\\": $prog"
+            if [ -z "$PROGRESS_JSON" ]; then
+                PROGRESS_JSON="$entry"
+            else
+                PROGRESS_JSON="$PROGRESS_JSON, $entry"
+            fi
+        fi
+    done
+
     elapsed=$(( $(date +%s) - start_time ))
     echo "[monitor $i] $done_count/$TOTAL done (elapsed: ${{elapsed}}s)"
 
     # Write status to marker file
     if [ "$done_count" -eq "$TOTAL" ]; then
-        echo '{{"status": "all_complete", "completed": ['$COMPLETED_JSON'], "pending": [], "just_completed": [], "dispatch_needed": false, "elapsed_sec": '$elapsed', "poll_count": '$i'}}' > "$MARKER"
+        echo '{{"status": "all_complete", "completed": ['$COMPLETED_JSON'], "pending": [], "just_completed": [], "dispatch_needed": false, "progress": {{'$PROGRESS_JSON'}}, "elapsed_sec": '$elapsed', "poll_count": '$i'}}' > "$MARKER"
         echo "[monitor] All {task_count} tasks complete!"{notify_block}
         exit 0
     fi
 
-    echo '{{"status": "monitoring", "completed": ['$COMPLETED_JSON'], "pending": ['$PENDING_JSON'], "just_completed": [], "dispatch_needed": '$DISPATCH', "elapsed_sec": '$elapsed', "poll_count": '$i'}}' > "$MARKER"
+    echo '{{"status": "monitoring", "completed": ['$COMPLETED_JSON'], "pending": ['$PENDING_JSON'], "just_completed": [], "dispatch_needed": '$DISPATCH', "progress": {{'$PROGRESS_JSON'}}, "elapsed_sec": '$elapsed', "poll_count": '$i'}}' > "$MARKER"
 {timeout_check}
     sleep {poll_interval_sec}
 done
