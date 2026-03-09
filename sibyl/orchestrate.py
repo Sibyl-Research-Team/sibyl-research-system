@@ -1989,11 +1989,25 @@ def cli_init(topic: str, project_name: str | None = None,
     print(json.dumps(result, indent=2))
 
 
+def _write_sentinel_heartbeat(workspace_path: str, stage: str, action: str):
+    """Write heartbeat file for Sentinel watchdog (best-effort)."""
+    hb_path = Path(workspace_path) / "sentinel_heartbeat.json"
+    hb_path.write_text(json.dumps({
+        "ts": time.time(),
+        "stage": stage,
+        "action": action,
+    }))
+
+
 def cli_next(workspace_path: str):
     """CLI: Get next action."""
     o = FarsOrchestrator(workspace_path)
     action = o.get_next_action()
     print(json.dumps(action, indent=2))
+    try:
+        _write_sentinel_heartbeat(workspace_path, action.get("stage", ""), "cli_next")
+    except Exception:
+        pass  # Heartbeat is best-effort, never block orchestration
 
 
 def cli_record(workspace_path: str, stage: str, result: str = "",
@@ -2007,6 +2021,10 @@ def cli_record(workspace_path: str, stage: str, result: str = "",
     if o.config.lark_enabled and stage not in _NO_SYNC_TRIGGER:
         output["sync_requested"] = True
     print(json.dumps(output))
+    try:
+        _write_sentinel_heartbeat(workspace_path, stage, "cli_record")
+    except Exception:
+        pass
 
 
 def cli_pause(workspace_path: str, reason: str = "rate_limit"):
@@ -2231,6 +2249,81 @@ def cli_experiment_status(workspace_path: str = ""):
     result["estimated_remaining_min"] = est_remaining_min
 
     print(json.dumps(result, indent=2, ensure_ascii=False))
+
+
+def cli_sentinel_session(workspace_path: str, session_id: str):
+    """CLI: Save Claude Code session ID for Sentinel resume."""
+    session_path = Path(workspace_path) / "sentinel_session.json"
+    session_path.write_text(json.dumps({
+        "session_id": session_id,
+        "saved_at": time.time(),
+    }))
+    print(json.dumps({"status": "ok", "session_id": session_id}))
+
+
+def cli_sentinel_config(workspace_path: str):
+    """CLI: Get Sentinel configuration for watchdog script."""
+    ws_path = Path(workspace_path)
+
+    session_data: dict = {}
+    session_path = ws_path / "sentinel_session.json"
+    if session_path.exists():
+        try:
+            session_data = json.loads(session_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    heartbeat: dict = {}
+    hb_path = ws_path / "sentinel_heartbeat.json"
+    if hb_path.exists():
+        try:
+            heartbeat = json.loads(hb_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Check if project has running experiments
+    has_running = False
+    exp_state_path = ws_path / "exp" / "experiment_state.json"
+    if exp_state_path.exists():
+        try:
+            exp_data = json.loads(exp_state_path.read_text())
+            for t in exp_data.get("tasks", {}).values():
+                if t.get("status") == "running":
+                    has_running = True
+                    break
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Also check gpu_progress running map
+    gpu_progress_path = ws_path / "exp" / "gpu_progress.json"
+    if not has_running and gpu_progress_path.exists():
+        try:
+            gp = json.loads(gpu_progress_path.read_text())
+            if gp.get("running"):
+                has_running = True
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Check project status
+    status_path = ws_path / "status.json"
+    stage = ""
+    paused = False
+    if status_path.exists():
+        try:
+            st = json.loads(status_path.read_text())
+            stage = st.get("stage", "")
+            paused = st.get("paused_at", 0) > 0
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    print(json.dumps({
+        "workspace_path": str(ws_path),
+        "session_id": session_data.get("session_id", ""),
+        "heartbeat": heartbeat,
+        "has_running_experiments": has_running,
+        "stage": stage,
+        "paused": paused,
+    }, indent=2))
 
 
 def cli_dispatch_tasks(workspace_path: str):

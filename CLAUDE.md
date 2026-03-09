@@ -108,6 +108,21 @@ Sibyl 的所有 agent 角色已封装为 `context: fork` skill，运行在独立
 - `_action_experiment_batch` 入口自动执行本地恢复（检查 gpu_progress 中的 completed）
 - `_natural_next_stage` 同时检查 experiment_state 和 gpu_progress 中的 running 任务
 
+### Sentinel 看门狗（自动恢复）
+Sentinel 是纯 bash 看门狗脚本（`sibyl/sentinel.sh`），跑在 tmux 的 sibling pane 中，确保 Claude Code 中断后自动恢复。
+- **心跳文件**: `<workspace>/sentinel_heartbeat.json`（`cli_next`/`cli_record` 自动写入）
+- **Session 持久化**: `<workspace>/sentinel_session.json`（start/resume 时保存 `$CLAUDE_CODE_SESSION_ID`）
+- **停止信号**: `<workspace>/sentinel_stop.json`（stop 时写入 `{"stop": true}`）
+- **检测逻辑**: 每 2 分钟检查 Claude 进程 + 子进程活跃度 + 心跳新鲜度 + 实验状态
+- **子进程检测**: Claude 有活跃子进程（bash/sleep/ssh）时视为正常工作中，不干预（避免误判 `bash sleep 600`）
+- **唤醒策略**:
+  - 进程不存在 → `claude --resume <session_id>` + `/sibyl-research:continue`
+  - 进程在但心跳 >5min 且无子进程 → 注入 `/sibyl-research:continue`
+- **退避机制**: 连续 3 次唤醒失败后暂停 6 分钟
+- **CLI**: `cli_sentinel_session(workspace, session_id)`, `cli_sentinel_config(workspace)`
+- **启动**: `/sibyl-research:start` 和 `/sibyl-research:resume` 自动在 tmux 中启动
+- **停止**: `/sibyl-research:stop` 写入停止信号
+
 ### Codex 集成
 - `codex_enabled`: 启用后，idea_debate、result_debate、review 阶段可引入 Codex 独立审查
 - 对于你自己的本地开发机，如果 Codex MCP 和 `OPENAI_API_KEY` 都已配置完成，建议在本地 `config.yaml` 中设 `codex_enabled: true`。这个文件会存在于工作区里，但 Git 不会跟踪和提交它
