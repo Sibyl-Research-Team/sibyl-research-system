@@ -62,8 +62,43 @@ For EACH experiment task, also design a PILOT version:
   ```
 - 如前一迭代已有可复用的中间结果，在 task 的 `depends_on` 中引用
 
+## Visualization Planning
+
+When designing experiments, also plan what visualizations the results will produce. Add a `visualizations` field to each task in task_plan.json:
+
+```json
+{
+  "id": "train_main",
+  "visualizations": [
+    {
+      "type": "table",
+      "description": "Main results comparison table",
+      "columns": ["Method", "Accuracy", "F1", "Params"],
+      "paper_section": "experiments"
+    },
+    {
+      "type": "line_plot",
+      "description": "Training loss curves",
+      "x": "epoch", "y": "loss",
+      "paper_section": "experiments"
+    }
+  ]
+}
+```
+
+This helps the experimenter save result data in formats suitable for figure generation, and the outline writer plan the paper's visual elements.
+
+### In methodology.md, include a section:
+```markdown
+## Expected Visualizations
+- Architecture diagram: overall method pipeline
+- Table 1: main benchmark results (method × metric)
+- Figure 2: ablation study (bar chart per component)
+- Figure 3: training dynamics (loss/metric curves)
+```
+
 ## Output
-- `{workspace}/plan/methodology.md`: Detailed methodology (setup, baselines, metrics, evaluation benchmarks)
+- `{workspace}/plan/methodology.md`: Detailed methodology (setup, baselines, metrics, evaluation benchmarks, expected visualizations)
 - `{workspace}/plan/task_plan.json`: Structured task list:
   ```json
   {"tasks": [{"id": "task_1", "name": "...", "description": "...",

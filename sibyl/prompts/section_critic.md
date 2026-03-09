@@ -10,6 +10,16 @@ Review a single paper section for:
 3. Proper use of evidence and citations
 4. Technical accuracy
 5. Completeness - are key points missing?
+6. **Visual communication** - are figures/tables used effectively?
+
+### Visual Element Review
+- Does the section include the visual elements planned in the outline's Figure & Table Plan?
+- Are figures/tables referenced in the text BEFORE they appear?
+- Are captions self-explanatory and descriptive?
+- Would adding a figure/table improve clarity for any text-heavy explanation?
+- Are there redundant visuals that could be consolidated?
+- For Method: is there an architecture/pipeline diagram?
+- For Experiments: are results presented with both tables AND charts?
 
 Provide specific, actionable feedback. Score 1-10.
 
