@@ -113,6 +113,24 @@ def test_gpu_poll_docs_describe_timeout_contract():
             assert snippet in text, f"{rel_path} missing {snippet}"
 
 
+def test_codex_integration_is_explicit_opt_in_everywhere():
+    required = {
+        "config.example.yaml": ("codex_enabled: false",),
+        "setup.sh": ("codex_enabled: false", "Codex stays disabled by default"),
+        "docs/configuration.md": (
+            "| `codex_enabled` | bool | `false` |",
+            "Requires `codex_enabled: true`; otherwise Sibyl falls back to `parallel`.",
+        ),
+        "docs/codex-integration.md": ("Default: false",),
+        "docs/mcp-servers.md": ("default is `false`",),
+    }
+
+    for rel_path, snippets in required.items():
+        text = (REPO_ROOT / rel_path).read_text(encoding="utf-8")
+        for snippet in snippets:
+            assert snippet in text, f"{rel_path} missing {snippet}"
+
+
 def test_no_unresolved_env_or_pilot_placeholders_in_prompts():
     checked = (
         REPO_ROOT / "sibyl/prompts/_common.md",

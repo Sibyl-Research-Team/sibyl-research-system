@@ -16,13 +16,13 @@ from sibyl.reflection import IterationLogger
 class TestConfig:
     def test_defaults(self):
         c = Config()
-        assert c.ssh_server == "gpu-server"
+        assert c.ssh_server == "default"
         assert c.pilot_samples == 16
         assert c.writing_mode == "parallel"
         assert c.experiment_mode == "ssh_mcp"
         assert c.lark_enabled is True
         assert c.evolution_enabled is True
-        assert c.codex_enabled is True
+        assert c.codex_enabled is False
 
     def test_from_yaml(self, tmp_path):
         yaml_content = """
@@ -65,7 +65,7 @@ lark_enabled: false
         yaml_path = tmp_path / "empty.yaml"
         yaml_path.write_text("", encoding="utf-8")
         c = Config.from_yaml(str(yaml_path))
-        assert c.ssh_server == "gpu-server"  # all defaults
+        assert c.ssh_server == "default"  # all defaults
 
     def test_remote_env_cmd_conda(self):
         c = Config()
@@ -73,12 +73,19 @@ lark_enabled: false
         assert "conda" in cmd
         assert "sibyl_myproj" in cmd
         assert "miniconda3" in cmd
+        assert "--no-banner" not in cmd
 
     def test_remote_env_cmd_conda_custom_path(self):
         c = Config(remote_conda_path="/opt/conda/bin/conda")
         cmd = c.get_remote_env_cmd("myproj")
         assert "/opt/conda/bin/conda" in cmd
         assert "sibyl_myproj" in cmd
+
+    def test_remote_env_cmd_conda_custom_env_name(self):
+        c = Config(remote_conda_env_name="base")
+        cmd = c.get_remote_env_cmd("myproj")
+        assert " -n base" in cmd
+        assert "sibyl_myproj" not in cmd
 
     def test_remote_env_cmd_venv(self):
         c = Config(remote_env_type="venv")
@@ -91,6 +98,7 @@ lark_enabled: false
         yaml_content = """
 remote_env_type: venv
 remote_conda_path: /custom/conda
+remote_conda_env_name: shared-env
 iteration_dirs: true
 """
         yaml_path = tmp_path / "config.yaml"
@@ -98,6 +106,7 @@ iteration_dirs: true
         c = Config.from_yaml(str(yaml_path))
         assert c.remote_env_type == "venv"
         assert c.remote_conda_path == "/custom/conda"
+        assert c.remote_conda_env_name == "shared-env"
         assert c.iteration_dirs is True
 
     def test_invalid_remote_env_type(self, tmp_path):
@@ -110,6 +119,7 @@ iteration_dirs: true
         c = Config()
         assert c.remote_env_type == "conda"
         assert c.remote_conda_path == ""
+        assert c.remote_conda_env_name == ""
         assert c.iteration_dirs is False
 
 

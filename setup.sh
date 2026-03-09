@@ -120,6 +120,7 @@ MCPEOF
 ssh_server: "default"
 remote_base: "/home/$SSH_USER/sibyl_system"
 max_gpus: 4
+codex_enabled: false  # Opt in only after Codex MCP + OPENAI_API_KEY are configured
 CFGEOF
             echo "  ✓ Created config.yaml (edit remote_base/max_gpus as needed)"
         fi
@@ -164,7 +165,8 @@ echo "=== Setup complete ==="
 echo ""
 echo "Next steps:"
 echo "  1. Set missing environment variables (see above)"
-echo "  2. Review config.yaml — adjust remote_base and max_gpus for your server"
+echo "  2. Review config.yaml — adjust remote_base/max_gpus for your server"
+echo "     Codex stays disabled by default; enable it only after installing Codex MCP and OPENAI_API_KEY"
 echo "  3. Launch Claude Code with Sibyl plugin:"
 echo "       claude --plugin-dir ./plugin"
 echo "  4. Inside Claude Code:"

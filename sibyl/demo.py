@@ -24,6 +24,7 @@ class RemoteParallelSmokeDemo:
     ssh_server: str = "default"
     remote_base: str = "/home/ccwang/sibyl_system"
     remote_conda_path: str = "/home/ccwang/miniforge3/bin/conda"
+    remote_conda_env_name: str = "base"
     gpt2_source_path: str = "/home/ccwang/sibyl_system/models/gpt2"
     qwen_source_path: str = "/home/ccwang/sibyl_system/models/Qwen2.5-1.5B-Instruct"
     max_gpus: int = 2
@@ -68,6 +69,7 @@ def _demo_mapping(spec: RemoteParallelSmokeDemo) -> dict[str, str]:
         "ssh_server": spec.ssh_server,
         "remote_base": spec.remote_base,
         "remote_conda_path": spec.remote_conda_path,
+        "remote_conda_env_name": spec.remote_conda_env_name,
         "gpt2_source_path": spec.gpt2_source_path,
         "qwen_source_path": spec.qwen_source_path,
         "gpt2_shared_path": spec.gpt2_shared_path,
@@ -108,6 +110,7 @@ def build_remote_parallel_demo_config(spec: RemoteParallelSmokeDemo) -> dict:
         "iteration_dirs": True,
         "remote_env_type": "conda",
         "remote_conda_path": spec.remote_conda_path,
+        "remote_conda_env_name": spec.remote_conda_env_name,
     }
 
 

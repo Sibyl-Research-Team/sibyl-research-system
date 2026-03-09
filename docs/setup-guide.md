@@ -164,6 +164,7 @@ ssh_server: "<SSH_SERVER_NAME>"
 remote_base: "<REMOTE_BASE>"
 max_gpus: <MAX_GPUS>
 # language: zh        # uncomment and change to "en" for English control-plane output
+# remote_conda_env_name: base   # optional: reuse an existing remote conda env instead of sibyl_<project>
 ```
 
 **Note**: `ssh_server` value depends on how SSH MCP was configured:
@@ -227,9 +228,10 @@ pip install torch transformers datasets matplotlib numpy scikit-learn
 Run these checks to confirm everything works:
 
 1. **Python env**: `.venv/bin/python3 -c "from sibyl.config import Config; print('✓ Python OK')"`
-2. **Config file**: `cat config.yaml` — should show ssh_server, remote_base, max_gpus
+2. **Config file**: `cat config.yaml` — fresh installs should show ssh_server, remote_base, max_gpus, and `codex_enabled: false`
 3. **MCP servers**: Restart Claude Code and check that `mcp__ssh-mcp-server__list-servers` and `mcp__arxiv-mcp-server__search_papers` are available
-4. **Plugin**: `/sibyl-research:status` runs without error
+4. **Codex (recommended on your own machine once installed)**: after installing Codex MCP and setting `OPENAI_API_KEY`, flip `codex_enabled: true` in your local `config.yaml` and verify `mcp__codex__codex` is available. That file exists in your working tree, but Git does not track or commit it
+5. **Plugin**: `/sibyl-research:status` runs without error
 
 If all pass, remind the user to launch with `--dangerously-skip-permissions` for fully autonomous operation, and start researching:
 ```

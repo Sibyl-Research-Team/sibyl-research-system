@@ -9,6 +9,7 @@ Usage (called by Skill via Bash):
 import json
 import re
 import shlex
+import sys
 import time
 from pathlib import Path
 from dataclasses import dataclass, asdict
@@ -128,6 +129,19 @@ def resolve_workspace_root(workspace_path: str | Path) -> Path:
     if workspace_root.name == "current" and (workspace_root.parent / "status.json").exists():
         workspace_root = workspace_root.parent
     return workspace_root.resolve()
+
+
+def build_repo_python_cli_command(*args: str | Path) -> str:
+    """Build a shell-safe repo-local `python -m sibyl.cli ...` command."""
+    repo_root = Path(__file__).resolve().parent.parent
+    cmd = shlex.join([sys.executable, "-m", "sibyl.cli", *(str(arg) for arg in args)])
+    return f"cd {shlex.quote(str(repo_root))} && {cmd}"
+
+
+def self_heal_status_file(workspace_path: str | Path) -> str:
+    """Return the project-scoped self-heal monitor status file under /tmp."""
+    workspace_root = resolve_workspace_root(workspace_path)
+    return project_marker_file(workspace_root.name, "self_heal_monitor")
 
 
 def load_workspace_iteration_dirs(workspace_path: str | Path, default: bool = False) -> bool:
@@ -268,7 +282,6 @@ class FarsOrchestrator:
         "writing_latex",
         "review",
         "reflection",
-        "lark_sync",
         "quality_gate",
         "done",
     ]
@@ -409,9 +422,6 @@ class FarsOrchestrator:
             raise ValueError("Cannot record result for terminal stage 'done'")
         current = self.ws.get_status().stage
         if stage != current:
-            # Tolerate duplicate lark_sync after it was auto-advanced earlier.
-            if stage == "lark_sync":
-                return
             try:
                 if self.STAGES.index(stage) < self.STAGES.index(current):
                     return
@@ -440,6 +450,25 @@ class FarsOrchestrator:
         # Auto git commit after each stage
         score_str = f" (score={score})" if score is not None else ""
         self.ws.git_commit(f"sibyl: complete {stage}{score_str}")
+
+        # Trigger background Feishu sync if enabled
+        _NO_SYNC_TRIGGER = {"init", "quality_gate", "done", "lark_sync"}
+        if (self.config.lark_enabled
+                and stage not in _NO_SYNC_TRIGGER):
+            self._append_pending_sync(stage)
+
+    def _append_pending_sync(self, stage: str):
+        """Append a sync trigger to lark_sync/pending_sync.jsonl."""
+        import datetime
+        entry = {
+            "trigger_stage": stage,
+            "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "iteration": self.ws.get_status().iteration,
+        }
+        sync_dir = self.ws.root / "lark_sync"
+        sync_dir.mkdir(parents=True, exist_ok=True)
+        with open(sync_dir / "pending_sync.jsonl", "a") as f:
+            f.write(json.dumps(entry) + "\n")
 
     def get_status(self) -> dict:
         """Get current project status."""
@@ -511,9 +540,6 @@ class FarsOrchestrator:
         elif stage == "reflection":
             return self._action_reflection(ws, iteration)
 
-        elif stage == "lark_sync":
-            return self._action_lark_sync(ws)
-
         elif stage == "quality_gate":
             return self._action_quality_gate()
 
@@ -576,7 +602,7 @@ class FarsOrchestrator:
         """Single fork skill performs literature search via arXiv + WebSearch."""
         return Action(
             action_type="skill",
-            skills=[{"name": "sibyl-literature", "args": pack_skill_args(topic, ws)}],
+            skills=[{"name": "sibyl-literature", "args": pack_skill_args(ws, topic)}],
             description="文献调研：arXiv 搜索 + Web 搜索，建立领域现状基础",
             stage="literature_search",
         )
@@ -644,12 +670,12 @@ class FarsOrchestrator:
         )
 
         all_teammates = [
-            {"name": "innovator", "skill": "sibyl-innovator", "args": pack_skill_args(topic, ws)},
-            {"name": "pragmatist", "skill": "sibyl-pragmatist", "args": pack_skill_args(topic, ws)},
-            {"name": "theoretical", "skill": "sibyl-theoretical", "args": pack_skill_args(topic, ws)},
-            {"name": "contrarian", "skill": "sibyl-contrarian", "args": pack_skill_args(topic, ws)},
-            {"name": "interdisciplinary", "skill": "sibyl-interdisciplinary", "args": pack_skill_args(topic, ws)},
-            {"name": "empiricist", "skill": "sibyl-empiricist", "args": pack_skill_args(topic, ws)},
+            {"name": "innovator", "skill": "sibyl-innovator", "args": pack_skill_args(ws, topic)},
+            {"name": "pragmatist", "skill": "sibyl-pragmatist", "args": pack_skill_args(ws, topic)},
+            {"name": "theoretical", "skill": "sibyl-theoretical", "args": pack_skill_args(ws, topic)},
+            {"name": "contrarian", "skill": "sibyl-contrarian", "args": pack_skill_args(ws, topic)},
+            {"name": "interdisciplinary", "skill": "sibyl-interdisciplinary", "args": pack_skill_args(ws, topic)},
+            {"name": "empiricist", "skill": "sibyl-empiricist", "args": pack_skill_args(ws, topic)},
         ]
         teammates = [t for t in all_teammates if t["name"] in remaining]
 
@@ -966,11 +992,9 @@ class FarsOrchestrator:
             "remote_dir": remote_dir,
             # Dynamic dispatch: when a task completes, dispatch next queued task
             "dynamic_dispatch": True,
-            "dispatch_cmd": (
-                f'cd {Path(__file__).resolve().parent.parent} && '
-                f'.venv/bin/python3 -c "'
-                f"from sibyl.orchestrate import cli_dispatch_tasks; "
-                f"cli_dispatch_tasks({self.workspace_path!r})\""
+            "dispatch_cmd": build_repo_python_cli_command(
+                "dispatch",
+                self.workspace_path,
             ),
         }
 
@@ -1123,6 +1147,9 @@ class FarsOrchestrator:
 
     def _action_writing_sections(self, ws: str) -> Action:
         mode = self.config.writing_mode
+        codex_fallback = mode == "codex" and not self.config.codex_enabled
+        if codex_fallback:
+            mode = "parallel"
 
         # Checkpoint: track per-section progress (all writing modes)
         steps = {sid: f"writing/sections/{sid}.md" for sid, _ in PAPER_SECTIONS}
@@ -1190,6 +1217,7 @@ class FarsOrchestrator:
                 action_type="team",
                 team=team_dict,
                 description=f"Agent Team: {len(teammates)}人并行撰写论文章节"
+                            + ("（Codex 未启用，已自动回退）" if codex_fallback else "")
                             + (f"（恢复：已完成 {len(cp_info['completed_steps'])}/6）"
                                if cp_info and cp_info["resuming"] else ""),
                 stage="writing_sections",
@@ -1300,19 +1328,6 @@ class FarsOrchestrator:
             stage="reflection",
         )
 
-    def _action_lark_sync(self, ws: str) -> Action:
-        status = self.ws.get_status()
-        resume_to = status.resume_after_sync
-        if resume_to:
-            desc = f"飞书增量同步（完成后继续 → {resume_to}）"
-        else:
-            desc = "Sync research data to Feishu (docs, bitable, notifications)"
-        return Action(
-            action_type="skill",
-            skills=[{"name": "sibyl-lark-sync", "args": ws}],
-            description=desc,
-            stage="lark_sync",
-        )
 
     def _is_pipeline_done(self) -> tuple[bool, float, float, int, int]:
         """Determine if the pipeline should terminate.
@@ -1538,48 +1553,12 @@ class FarsOrchestrator:
 
         Returns (next_stage, new_iteration). new_iteration is non-None only
         when the quality gate loops back for a new iteration.
-
-        When lark_enabled=True, inserts a lark_sync step after every
-        substantive stage (except loop-backs to the same stage).
-        The intended next stage is saved in resume_after_sync so that
-        lark_sync knows where to go when it completes.
         """
-        # lark_sync completed: resume to the stage saved before sync
-        if current_stage == "lark_sync":
-            status = self.ws.get_status()
-            resume_to = status.resume_after_sync
-            if resume_to:
-                self.ws.set_resume_after_sync("")
-                return (resume_to, None)
-            # Fallback: normal pipeline progression (quality_gate)
-            return ("quality_gate", None)
-
-        # Compute the natural next stage (without lark_sync interleaving)
-        natural_next, natural_iter = self._natural_next_stage(
-            current_stage, result, score
-        )
-
-        # Interleave lark_sync after substantive stages when enabled.
-        # Skip sync when:
-        # - lark disabled
-        # - looping back to same stage (experiment batches, etc.)
-        # - init (transient), quality_gate/done (terminal)
-        # - natural_next is already lark_sync (pipeline position after reflection)
-        _NO_SYNC_STAGES = {"init", "quality_gate", "done"}
-        if (self.config.lark_enabled
-                and current_stage not in _NO_SYNC_STAGES
-                and natural_next != current_stage
-                and natural_next != "lark_sync"):
-            self.ws.set_resume_after_sync(natural_next)
-            if natural_iter is not None:
-                self.ws.update_iteration(natural_iter)
-            return ("lark_sync", None)
-
-        return (natural_next, natural_iter)
+        return self._natural_next_stage(current_stage, result, score)
 
     def _natural_next_stage(self, current_stage: str, result: str = "",
                             score: float | None = None) -> tuple[str, int | None]:
-        """Compute the next stage without lark_sync interleaving.
+        """Compute the next stage.
 
         Contains all branching logic: experiment loops, PIVOT, writing
         revisions, quality gate side effects, etc.
@@ -1837,7 +1816,12 @@ def cli_record(workspace_path: str, stage: str, result: str = "",
     """CLI: Record stage result."""
     o = FarsOrchestrator(workspace_path)
     o.record_result(stage, result, score)
-    print(json.dumps({"status": "ok", "new_stage": o.ws.get_status().stage}))
+    output = {"status": "ok", "new_stage": o.ws.get_status().stage}
+    # Signal main session to launch background sync agent
+    _NO_SYNC_TRIGGER = {"init", "quality_gate", "done", "lark_sync"}
+    if o.config.lark_enabled and stage not in _NO_SYNC_TRIGGER:
+        output["sync_requested"] = True
+    print(json.dumps(output))
 
 
 def cli_pause(workspace_path: str, reason: str = "rate_limit"):
@@ -1857,7 +1841,15 @@ def cli_resume(workspace_path: str):
 def cli_status(workspace_path: str):
     """CLI: Get project status."""
     o = FarsOrchestrator(workspace_path)
-    print(json.dumps(o.get_status(), indent=2))
+    status = o.get_status()
+    # Include Feishu sync status if available
+    sync_status_path = Path(workspace_path) / "lark_sync" / "sync_status.json"
+    if sync_status_path.exists():
+        try:
+            status["lark_sync_status"] = json.loads(sync_status_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            status["lark_sync_status"] = {"error": "corrupted sync_status.json"}
+    print(json.dumps(status, indent=2))
 
 
 def cli_checkpoint(workspace_path: str, stage: str, step_id: str):
@@ -2479,3 +2471,139 @@ def cli_migrate_server(project_name: str, ssh_connection: str = "default"):
             "迁移后，新项目将在 projects/ 子目录下创建，互不干扰。"
         ),
     }, indent=2))
+
+
+# ══════════════════════════════════════════════
+# Self-Healing CLI
+# ══════════════════════════════════════════════
+
+def cli_self_heal_scan(workspace_path: str = ""):
+    """CLI: Scan for errors and generate repair tasks.
+
+    Reads logs/errors.jsonl, deduplicates, filters actionable errors,
+    and returns repair tasks with skill routing.
+    """
+    from sibyl.error_collector import ErrorCollector
+    from sibyl.self_heal import SelfHealRouter
+
+    # Determine errors file location
+    if workspace_path:
+        errors_file = Path(workspace_path) / "logs" / "errors.jsonl"
+        state_file = Path(workspace_path) / "logs" / "self_heal_state.json"
+    else:
+        errors_file = Path("logs") / "errors.jsonl"
+        state_file = Path("logs") / "self_heal_state.json"
+
+    collector = ErrorCollector(errors_file)
+    router = SelfHealRouter(state_file)
+
+    errors = collector.read_errors(unprocessed_only=True)
+    errors = router.deduplicate(errors)
+    errors = router.filter_actionable(errors)
+    errors = router.prioritize(errors)
+
+    tasks = []
+    for err in errors:
+        task = router.generate_repair_task(err)
+        tasks.append(task)
+
+    print(json.dumps({
+        "total_unprocessed": len(collector.read_errors(unprocessed_only=True)),
+        "actionable": len(tasks),
+        "tasks": tasks,
+        "self_heal_status": router.get_status(),
+    }, indent=2))
+
+
+def cli_self_heal_record(
+    error_id: str,
+    success: bool,
+    commit_hash: str = "",
+    workspace_path: str = "",
+):
+    """CLI: Record a self-heal fix attempt result."""
+    from sibyl.error_collector import ErrorCollector
+    from sibyl.self_heal import SelfHealRouter
+
+    if workspace_path:
+        errors_file = Path(workspace_path) / "logs" / "errors.jsonl"
+        state_file = Path(workspace_path) / "logs" / "self_heal_state.json"
+    else:
+        errors_file = Path("logs") / "errors.jsonl"
+        state_file = Path("logs") / "self_heal_state.json"
+
+    collector = ErrorCollector(errors_file)
+    router = SelfHealRouter(state_file)
+
+    router.record_fix_attempt(error_id, success, commit_hash or None)
+    if success:
+        collector.mark_processed(error_id)
+
+    print(json.dumps({
+        "error_id": error_id,
+        "success": success,
+        "commit": commit_hash,
+        "status": router.get_status(),
+    }, indent=2))
+
+
+def cli_self_heal_status(workspace_path: str = ""):
+    """CLI: Show self-heal system status."""
+    from sibyl.self_heal import SelfHealRouter
+
+    if workspace_path:
+        state_file = Path(workspace_path) / "logs" / "self_heal_state.json"
+    else:
+        state_file = Path("logs") / "self_heal_state.json"
+
+    router = SelfHealRouter(state_file)
+    status = router.get_status()
+
+    print(json.dumps({
+        "self_heal": status,
+        "summary": {
+            "fixed_count": len(status["fixed"]),
+            "circuit_broken_count": len(status["circuit_broken"]),
+            "in_progress_count": len(status["in_progress"]),
+        },
+    }, indent=2))
+
+
+def self_heal_monitor_script(
+    workspace_path: str,
+    interval_sec: int = 300,
+) -> str:
+    """Generate a background monitor script for self-healing.
+
+    The script periodically scans for errors and outputs status to
+    a project-scoped marker under /tmp for the main session to read.
+    """
+    status_file = self_heal_status_file(workspace_path)
+    scan_cmd = build_repo_python_cli_command("self-heal-scan", workspace_path)
+    actionable_cmd = shlex.join([
+        sys.executable,
+        "-c",
+        "import json, sys; data = json.load(sys.stdin); print(data.get('actionable', 0))",
+    ])
+    return f'''#!/usr/bin/env bash
+# Sibyl Self-Heal Monitor — auto-generated
+WORKSPACE={shlex.quote(workspace_path)}
+ERRORS_FILE="$WORKSPACE/logs/errors.jsonl"
+STATUS_FILE={shlex.quote(status_file)}
+INTERVAL={interval_sec}
+
+while true; do
+    if [ -f "$ERRORS_FILE" ]; then
+        RESULT=$({scan_cmd} 2>/dev/null)
+        printf '%s\n' "$RESULT" > "$STATUS_FILE"
+
+        # Check if there are actionable tasks
+        ACTIONABLE=$({actionable_cmd} <<< "$RESULT" 2>/dev/null || echo "0")
+
+        if [ "$ACTIONABLE" -gt 0 ]; then
+            printf '{{"needs_repair": true, "actionable": %s, "timestamp": %s}}\n' "$ACTIONABLE" "$(date +%s)" > "$STATUS_FILE.trigger"
+        fi
+    fi
+    sleep "$INTERVAL"
+done
+'''

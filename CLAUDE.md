@@ -99,6 +99,7 @@ Sibyl 的所有 agent 角色已封装为 `context: fork` skill，运行在独立
 
 ### Codex 集成
 - `codex_enabled`: 启用后，idea_debate、result_debate、review 阶段可引入 Codex 独立审查
+- 对于你自己的本地开发机，如果 Codex MCP 和 `OPENAI_API_KEY` 都已配置完成，建议在本地 `config.yaml` 中设 `codex_enabled: true`。这个文件会存在于工作区里，但 Git 不会跟踪和提交它
 - team action 通过 `post_steps` 顺序追加 Codex/综合步骤，而不是单独的 `codex_step`
 - Codex 来源: OpenAI Codex CLI (`codex mcp-server` stdio)，配置在 `~/.codex/config.toml`
 - 实际模型: gpt-5.4 high（由 config.toml 配置，MCP 调用时**不传 model 参数**，设 `approval-policy: "never"`）
@@ -123,13 +124,23 @@ Sibyl 的所有 agent 角色已封装为 `context: fork` skill，运行在独立
 - 纯轻量任务（交叉批评、结果辩论）自动使用 Sonnet
 - Codex 任务使用 `gpt-5.4-high`
 
-## 飞书同步
+## 飞书同步（后台非阻塞）
 
 双 MCP 架构（配置在 `~/.mcp.json`）：
 - **lark** (官方 `@larksuiteoapi/lark-mcp`): tenant token, 用于 Bitable/IM
 - **feishu** (社区 `feishu-mcp`): user OAuth, 用于文件夹/文档/原生表格
 
 **关键规则**: 文档中的表格**必须用 `create_feishu_table` 创建原生表格**，禁止用 code block 渲染。
+
+### 后台同步机制
+- `lark_sync` **不再是流水线 stage**，改为后台非阻塞 agent
+- `cli_record()` 完成 stage 后自动追加触发到 `lark_sync/pending_sync.jsonl`，返回 `sync_requested: true`
+- 主 session 收到 `sync_requested` 后用 Agent tool (`run_in_background`) 启动 `sibyl-lark-sync` skill
+- 锁文件 `lark_sync/sync.lock` 防止并发同步（10 分钟超时自动接管）
+- 同步结果记录在 `lark_sync/sync_status.json`（含 history 审计记录）
+- 失败自动写入 `logs/errors.jsonl`，接入自愈系统
+- `cli_status()` 输出包含 `lark_sync_status` 字段
+- 不触发同步的 stage: `init`, `quality_gate`, `done`
 
 飞书同步 skill: `.claude/skills/sibyl-lark-sync/SKILL.md`
 
@@ -147,3 +158,46 @@ Sibyl 的所有 agent 角色已封装为 `context: fork` skill，运行在独立
 
 提交格式遵循 conventional commits：`fix:`, `feat:`, `refactor:`, `docs:`, `test:` 等。
 按功能拆分提交，不要把不相关的改动混在一起。
+
+## 自愈系统（Self-Healing）
+
+后台常驻 agent，自动检测并修复系统运行时错误。
+
+### 架构
+- **错误收集器** (`sibyl/error_collector.py`): 结构化错误记录到 `logs/errors.jsonl`
+- **错误路由器** (`sibyl/self_heal.py`): 去重、优先级排序、skill 路由、熔断器
+- **修复执行器** (`sibyl-self-healer` skill): 调用对应 skill 修复 + 新增测试 + git commit
+
+### Skill 路由表
+| 错误类型 | 修复 Skill |
+|---------|-----------|
+| import | python-patterns → tdd-workflow |
+| test | systematic-debugging → tdd-workflow |
+| type | python-patterns → python-review |
+| state | systematic-debugging → verification-loop |
+| config | systematic-debugging |
+| build | build-error-resolver → tdd-workflow |
+
+### CLI API
+- `cli_self_heal_scan(workspace_path)`: 扫描错误并生成修复任务
+- `cli_self_heal_record(error_id, success, commit_hash)`: 记录修复结果
+- `cli_self_heal_status(workspace_path)`: 查看自愈系统状态
+- `self_heal_monitor_script(workspace_path)`: 生成后台监控脚本
+
+### 安全机制
+- **熔断器**: 同一错误 3 次修复失败 → 标记需人工干预
+- **文件限制**: 单次修复最多改 5 个文件
+- **受保护文件**: `orchestrate.py` 只允许最小化修改
+- **测试门槛**: 修复后全量测试必须通过
+
+### Git 策略
+- Commit format: `fix(self-heal): <描述> [auto]`
+- 所有修复提交到 `dev` 分支
+- 阶段性通过 PR 同步到 `main`
+
+### 配置 (`config.yaml`)
+```yaml
+self_heal_enabled: true        # 启用自愈（默认 true）
+self_heal_interval_sec: 300    # 扫描间隔（默认 5 分钟）
+self_heal_max_attempts: 3      # 熔断阈值（默认 3 次）
+```

@@ -173,7 +173,7 @@ model_reasoning_effort = "high"
 
 See [Codex Integration](codex-integration.md) for full details.
 
-**Disable**: Set `codex_enabled: false` in `config.yaml`.
+**Enable**: Install Codex MCP, set `OPENAI_API_KEY`, then set `codex_enabled: true` in `config.yaml` (default is `false`).
 
 ## Lark MCP (Official)
 

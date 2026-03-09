@@ -9,7 +9,7 @@ allowed-tools: Read, Write, Glob, Grep, Bash, WebSearch, WebFetch, mcp__arxiv-mc
 
 !`.venv/bin/python3 -c "from sibyl.orchestrate import load_prompt, load_common_prompt; print(load_common_prompt()); print('---'); print(load_prompt('literature_researcher'))"`
 
-研究主题: $ARGUMENTS[0]
-Workspace path: $ARGUMENTS[1]
+Workspace path: $ARGUMENTS[0]
+研究主题 (may contain spaces): $ARGUMENTS[1]
 
-请同时使用 mcp__arxiv-mcp-server__search_papers 和 WebSearch 进行调研，将结果写入 $ARGUMENTS[1]/context/literature.md
+请同时使用 mcp__arxiv-mcp-server__search_papers 和 WebSearch 进行调研，将结果写入 $ARGUMENTS[0]/context/literature.md

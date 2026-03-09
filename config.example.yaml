@@ -27,7 +27,7 @@ writing_mode: parallel
 experiment_mode: ssh_mcp
 
 # Codex independent review
-codex_enabled: true
+codex_enabled: false
 
 # Language for agent output: "en" (default) or "zh"
 language: en

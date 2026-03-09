@@ -67,7 +67,7 @@ class Config:
     writing_revision_rounds: int = 2
 
     # Codex integration
-    codex_enabled: bool = True
+    codex_enabled: bool = False
     codex_model: str = ""  # Codex model (empty = use default; ChatGPT accounts don't support custom models)
 
     # Writing mode
@@ -90,6 +90,11 @@ class Config:
 
     # Auto evolution
     evolution_enabled: bool = True
+
+    # Self-healing
+    self_heal_enabled: bool = True
+    self_heal_interval_sec: int = 300   # scan interval (5 min)
+    self_heal_max_attempts: int = 3     # circuit breaker threshold
 
     # Model routing
     model_tiers: dict = field(default_factory=lambda: {
@@ -135,6 +140,7 @@ class Config:
             "remote_env_type", "remote_conda_path", "remote_conda_env_name",
             "iteration_dirs",
             "language",
+            "self_heal_enabled", "self_heal_interval_sec", "self_heal_max_attempts",
         ]:
             if key in data:
                 setattr(cfg, key, data[key])

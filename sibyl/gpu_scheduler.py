@@ -22,10 +22,29 @@ GPU polling:
     GPUs with memory usage below a threshold. The polling is designed to be
     executed as a lightweight bash command (no LLM needed).
 """
+import fcntl
 import json
 import re
 from collections import deque
+from contextlib import contextmanager
 from pathlib import Path
+
+
+@contextmanager
+def _progress_lock(workspace_root: Path):
+    """Acquire an exclusive file lock for gpu_progress.json operations.
+
+    Prevents race conditions when multiple agents read-modify-write the same file.
+    """
+    lock_path = workspace_root / "exp" / ".gpu_progress.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_fd = open(lock_path, "w")
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        lock_fd.close()
 
 
 # Required fields that planner must provide for each task
@@ -225,26 +244,27 @@ def register_running_tasks(workspace_root: Path, task_gpu_map: dict[str, list[in
     progress_path = workspace_root / "exp" / "gpu_progress.json"
     progress_path.parent.mkdir(parents=True, exist_ok=True)
 
-    progress = {"completed": [], "failed": [], "running": {}, "timings": {}}
-    if progress_path.exists():
-        try:
-            with open(progress_path, encoding="utf-8") as f:
-                progress.update(json.load(f))
-        except (json.JSONDecodeError, OSError):
-            pass
+    with _progress_lock(workspace_root):
+        progress = {"completed": [], "failed": [], "running": {}, "timings": {}}
+        if progress_path.exists():
+            try:
+                with open(progress_path, encoding="utf-8") as f:
+                    progress.update(json.load(f))
+            except (json.JSONDecodeError, OSError):
+                pass
 
-    if "running" not in progress:
-        progress["running"] = {}
+        if "running" not in progress:
+            progress["running"] = {}
 
-    now = datetime.datetime.now().isoformat()
-    for task_id, gpu_ids in task_gpu_map.items():
-        progress["running"][task_id] = {
-            "gpu_ids": gpu_ids,
-            "started_at": now,
-        }
+        now = datetime.datetime.now().isoformat()
+        for task_id, gpu_ids in task_gpu_map.items():
+            progress["running"][task_id] = {
+                "gpu_ids": gpu_ids,
+                "started_at": now,
+            }
 
-    with open(progress_path, "w", encoding="utf-8") as f:
-        json.dump(progress, f, indent=2)
+        with open(progress_path, "w", encoding="utf-8") as f:
+            json.dump(progress, f, indent=2)
 
 
 def unregister_running_task(workspace_root: Path, task_id: str) -> None:
@@ -255,17 +275,19 @@ def unregister_running_task(workspace_root: Path, task_id: str) -> None:
     progress_path = workspace_root / "exp" / "gpu_progress.json"
     if not progress_path.exists():
         return
-    try:
-        with open(progress_path, encoding="utf-8") as f:
-            progress = json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return
-    running = progress.get("running", {})
-    if task_id in running:
-        del running[task_id]
-        progress["running"] = running
-        with open(progress_path, "w", encoding="utf-8") as f:
-            json.dump(progress, f, indent=2)
+
+    with _progress_lock(workspace_root):
+        try:
+            with open(progress_path, encoding="utf-8") as f:
+                progress = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            return
+        running = progress.get("running", {})
+        if task_id in running:
+            del running[task_id]
+            progress["running"] = running
+            with open(progress_path, "w", encoding="utf-8") as f:
+                json.dump(progress, f, indent=2)
 
 
 def get_running_gpu_ids(workspace_root: Path) -> list[int]:
