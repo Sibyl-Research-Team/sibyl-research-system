@@ -40,7 +40,7 @@ class Config:
     # GPU scheduling
     max_gpus: int = 4  # max GPUs to use (picks any free ones, not fixed IDs)
     gpus_per_task: int = 1
-    ssh_server: str = "gpu-server"
+    ssh_server: str = "default"
     remote_base: str = "/home/user/sibyl_system"
 
     # GPU polling (for shared servers with other users)
@@ -82,6 +82,7 @@ class Config:
     # Remote environment
     remote_env_type: str = "conda"       # "conda" | "venv"
     remote_conda_path: str = ""          # empty = auto {remote_base}/miniconda3/bin/conda
+    remote_conda_env_name: str = ""      # empty = auto sibyl_<project>; set to reuse an existing env
     iteration_dirs: bool = False         # True = iteration subdirectory mode
 
     # Lark sync
@@ -131,7 +132,8 @@ class Config:
             "idea_exp_cycles",
             "codex_enabled", "codex_model", "writing_mode", "codex_writing_model",
             "experiment_mode", "server_codex_path", "server_claude_path",
-            "remote_env_type", "remote_conda_path", "iteration_dirs",
+            "remote_env_type", "remote_conda_path", "remote_conda_env_name",
+            "iteration_dirs",
             "language",
         ]:
             if key in data:
@@ -202,7 +204,8 @@ class Config:
         if self.remote_env_type == "venv":
             return f"source {self.remote_base}/projects/{project_name}/.venv/bin/activate &&"
         conda = self.remote_conda_path or f"{self.remote_base}/miniconda3/bin/conda"
-        return f"{conda} run --no-banner -n sibyl_{project_name}"
+        env_name = self.remote_conda_env_name or f"sibyl_{project_name}"
+        return f"{conda} run -n {env_name}"
 
     def to_dict(self) -> dict:
         """Serialize config for persisting into a project workspace."""

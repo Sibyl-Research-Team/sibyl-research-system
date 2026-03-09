@@ -6,11 +6,12 @@
 workspaces_dir: workspaces
 
 # GPU server (REQUIRED: set these to your actual server)
-ssh_server: "gpu-server"           # SSH host name from ~/.ssh/config
+ssh_server: "default"              # SSH MCP connection name (from ssh-mcp-server config)
 remote_base: "/home/user/sibyl_system"  # base dir on remote server
 max_gpus: 4
 remote_env_type: "conda"           # "conda" or "venv"
 # remote_conda_path: ""            # empty = auto {remote_base}/miniconda3/bin/conda
+# remote_conda_env_name: ""        # empty = sibyl_<project>; set e.g. "base" to reuse an existing env
 
 # GPU polling (for shared servers)
 gpu_poll_enabled: true
