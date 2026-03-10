@@ -1,7 +1,7 @@
 {
-  "stage": "experiment_cycle",
+  "stage": "result_debate",
   "started_at": 1773142166.411805,
-  "updated_at": 1773142166.6791658,
+  "updated_at": 1773142166.74959,
   "iteration": 0,
   "errors": [],
   "paused": false,
@@ -9,5 +9,5 @@
   "stop_requested": false,
   "stop_requested_at": null,
   "iteration_dirs": false,
-  "stage_started_at": 1773142166.679165
+  "stage_started_at": 1773142166.74959
 }
