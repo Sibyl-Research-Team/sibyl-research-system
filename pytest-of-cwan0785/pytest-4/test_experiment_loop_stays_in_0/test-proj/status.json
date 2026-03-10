@@ -1,0 +1,13 @@
+{
+  "stage": "pilot_experiments",
+  "started_at": 1773123612.8732312,
+  "updated_at": 1773123612.875027,
+  "iteration": 0,
+  "errors": [],
+  "paused": false,
+  "paused_at": null,
+  "stop_requested": false,
+  "stop_requested_at": null,
+  "iteration_dirs": false,
+  "stage_started_at": 1773123612.875027
+}
