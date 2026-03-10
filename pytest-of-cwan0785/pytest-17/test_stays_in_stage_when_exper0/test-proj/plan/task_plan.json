@@ -1,0 +1,1 @@
+{"tasks": [{"id": "a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10}]}
