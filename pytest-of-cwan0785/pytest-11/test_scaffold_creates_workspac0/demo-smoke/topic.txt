@@ -1,0 +1,1 @@
+在远程 GPU 服务器上对 GPT-2 与 Qwen2.5-1.5B-Instruct 做极小型并行推理基准，完整验证 Sibyl 的远程实验、GPU 调度、实验监控、写作与 LaTeX 链路。
