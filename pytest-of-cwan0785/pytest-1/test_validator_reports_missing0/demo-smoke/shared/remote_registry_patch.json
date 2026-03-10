@@ -1,0 +1,20 @@
+{
+  "checkpoints": {
+    "gpt2_local": {
+      "type": "checkpoint",
+      "name": "gpt2",
+      "path": "shared/checkpoints/gpt2_local",
+      "target": "/home/ccwang/sibyl_system/models/gpt2",
+      "source": "preexisting_remote_weight",
+      "demo": "demo-smoke"
+    },
+    "qwen2_5_1_5b_instruct_local": {
+      "type": "checkpoint",
+      "name": "Qwen2.5-1.5B-Instruct",
+      "path": "shared/checkpoints/qwen2_5_1_5b_instruct_local",
+      "target": "/home/ccwang/sibyl_system/models/Qwen2.5-1.5B-Instruct",
+      "source": "preexisting_remote_weight",
+      "demo": "demo-smoke"
+    }
+  }
+}
