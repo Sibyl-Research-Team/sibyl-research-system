@@ -1,0 +1,18 @@
+{
+  "stage": "quality_gate",
+  "started_at": 1773125839.52319,
+  "updated_at": 1773125839.5418181,
+  "iteration": 0,
+  "errors": [
+    {
+      "time": 1773125839.5271628,
+      "error": "Evolution recording failed: [Errno 1] Operation not permitted: '/Users/cwan0785/.claude/sibyl_evolution/outcomes.jsonl'"
+    }
+  ],
+  "paused": false,
+  "paused_at": null,
+  "stop_requested": false,
+  "stop_requested_at": null,
+  "iteration_dirs": false,
+  "stage_started_at": 1773125839.5418181
+}
