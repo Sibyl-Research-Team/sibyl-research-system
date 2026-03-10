@@ -1,0 +1,18 @@
+{
+  "stage": "done",
+  "started_at": 1773126055.126001,
+  "updated_at": 1773126055.127717,
+  "iteration": 0,
+  "errors": [
+    {
+      "time": 1773126055.127326,
+      "error": "Unknown stage 'nonexistent_stage', forcing done"
+    }
+  ],
+  "paused": false,
+  "paused_at": null,
+  "stop_requested": false,
+  "stop_requested_at": null,
+  "iteration_dirs": false,
+  "stage_started_at": 1773126055.127716
+}
