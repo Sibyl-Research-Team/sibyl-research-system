@@ -1,0 +1,13 @@
+{
+  "stage": "quality_gate",
+  "started_at": 1773142123.102823,
+  "updated_at": 1773142123.110419,
+  "iteration": 0,
+  "errors": [],
+  "paused": false,
+  "paused_at": null,
+  "stop_requested": false,
+  "stop_requested_at": null,
+  "iteration_dirs": false,
+  "stage_started_at": 1773142123.1104178
+}
