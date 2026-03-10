@@ -1,0 +1,20 @@
+{
+  "tasks": [
+    {
+      "id": "shared_setup",
+      "candidate_id": "shared",
+      "depends_on": [],
+      "gpu_count": 1,
+      "estimated_minutes": 5
+    },
+    {
+      "id": "cand_b_train",
+      "candidate_id": "cand_b",
+      "depends_on": [
+        "shared_setup"
+      ],
+      "gpu_count": 1,
+      "estimated_minutes": 10
+    }
+  ]
+}
