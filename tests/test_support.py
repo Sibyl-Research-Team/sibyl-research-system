@@ -4,7 +4,7 @@ import pytest
 
 from sibyl.config import Config
 from sibyl.context_builder import ContextBuilder, estimate_tokens, truncate_to_tokens
-from sibyl.evolution import EvolutionEngine, IssueCategory
+from sibyl.evolution import EvolutionEngine, IssueCategory, normalize_action_plan
 from sibyl.experiment_records import ExperimentDB, ExperimentRecord
 from sibyl.reflection import IterationLogger
 
@@ -246,6 +246,26 @@ class TestIssueCategory:
 
 
 class TestEvolutionEngine:
+    def test_normalize_action_plan_schema_drift(self):
+        normalized = normalize_action_plan({
+            "issues_classified": [
+                {
+                    "description": "Need stronger literature comparison",
+                    "category": "research",
+                    "severity": "critical",
+                    "status": "ongoing",
+                }
+            ],
+            "quality_trajectory": "divergent",
+        })
+
+        issue = normalized["issues_classified"][0]
+        assert issue["category"] == "analysis"
+        assert issue["severity"] == "high"
+        assert issue["status"] == "recurring"
+        assert issue["issue_key"].startswith("analysis:")
+        assert normalized["quality_trajectory"] == "stagnant"
+
     def test_record_and_load(self, tmp_path, monkeypatch):
         monkeypatch.setattr(EvolutionEngine, "EVOLUTION_DIR", tmp_path / "evo")
         engine = EvolutionEngine()
@@ -359,10 +379,45 @@ class TestEvolutionEngine:
         engine.record_outcome("proj", "reflection", ["weak writing"], 6.0)
         digest = engine.build_digest()
         assert len(digest) >= 1
-        ssh_entry = [d for d in digest if "ssh" in d.pattern_summary]
+        ssh_entry = [d for d in digest if "ssh" in d.pattern_summary.lower()]
         assert len(ssh_entry) == 1
         assert ssh_entry[0].total_occurrences == 3
         assert ssh_entry[0].category == "system"
+
+    def test_build_digest_groups_by_issue_key(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(EvolutionEngine, "EVOLUTION_DIR", tmp_path / "evo")
+        engine = EvolutionEngine()
+        shared_key = "writing:word-limit"
+        engine.record_outcome(
+            "proj",
+            "reflection",
+            ["paper too long"],
+            5.0,
+            classified_issues=[
+                {
+                    "description": "论文篇幅仍远超 6,000 词限制",
+                    "category": "writing",
+                    "issue_key": shared_key,
+                }
+            ],
+        )
+        engine.record_outcome(
+            "proj",
+            "reflection",
+            ["paper too long"],
+            6.0,
+            classified_issues=[
+                {
+                    "description": "正文仍然超过 6000 词限制",
+                    "category": "writing",
+                    "issue_key": shared_key,
+                }
+            ],
+        )
+        digest = engine.build_digest()
+        writing_entries = [entry for entry in digest if entry.category == "writing"]
+        assert len(writing_entries) == 1
+        assert writing_entries[0].total_occurrences == 2
 
     def test_digest_cache(self, tmp_path, monkeypatch):
         """Digest should use cache when outcomes haven't changed."""
@@ -374,37 +429,31 @@ class TestEvolutionEngine:
         d2 = engine.build_digest()  # should use cache
         assert len(d1) == len(d2)
 
-    def test_effectiveness_tracking(self, tmp_path, monkeypatch):
-        """Issues with improving scores should be marked effective."""
+    def test_effectiveness_stays_unverified_without_causal_signal(self, tmp_path, monkeypatch):
+        """Score drift alone should not mark a lesson effective/ineffective."""
         monkeypatch.setattr(EvolutionEngine, "EVOLUTION_DIR", tmp_path / "evo")
         engine = EvolutionEngine()
-        # Early: low scores with this issue
         for _ in range(3):
             engine.record_outcome("proj", "reflection", ["bad analysis"], 4.0)
-        # Late: higher scores (lesson took effect)
         for _ in range(3):
             engine.record_outcome("proj", "reflection", ["bad analysis"], 8.0)
         digest = engine.build_digest()
         entry = [d for d in digest if "bad analysis" in d.pattern_summary][0]
-        assert entry.effectiveness == "effective"
-        assert entry.effectiveness_delta > 0
+        assert entry.effectiveness == "unverified"
+        assert entry.effectiveness_delta == 0.0
 
-    def test_ineffective_deprioritized(self, tmp_path, monkeypatch):
-        """Ineffective lessons should have reduced weighted frequency."""
+    def test_analyze_patterns_keeps_weight_without_fake_ineffective_penalty(self, tmp_path, monkeypatch):
         monkeypatch.setattr(EvolutionEngine, "EVOLUTION_DIR", tmp_path / "evo")
         engine = EvolutionEngine()
-        # Early: decent scores
         for _ in range(3):
             engine.record_outcome("proj", "reflection", ["persistent issue"], 7.0)
-        # Late: scores declined (lesson not helping)
         for _ in range(3):
             engine.record_outcome("proj", "reflection", ["persistent issue"], 4.0)
         insights = engine.analyze_patterns()
         assert len(insights) >= 1
         ins = insights[0]
-        assert ins.effectiveness == "ineffective"
-        # weighted_frequency should be reduced by 0.3x factor
-        assert ins.weighted_frequency < 3.0  # without penalty would be ~6.0
+        assert ins.effectiveness == "unverified"
+        assert ins.weighted_frequency > 3.0
 
     def test_filter_relevant_lessons(self, tmp_path, monkeypatch):
         """Relevance filtering should prioritize stage-matching categories."""
@@ -421,6 +470,17 @@ class TestEvolutionEngine:
         # Experimenter should see system issues (relevant to experiments) ranked higher
         assert "SSH" in result.lower() or "ssh" in result.lower()
 
+    def test_filter_relevant_lessons_understands_stage_aliases(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(EvolutionEngine, "EVOLUTION_DIR", tmp_path / "evo")
+        engine = EvolutionEngine()
+        for _ in range(3):
+            engine.record_outcome("proj", "reflection", ["Paper writing clarity issues"], 5.0)
+        result = engine.filter_relevant_lessons(
+            agent_name="section_writer",
+            stage="writing_sections",
+        )
+        assert "clarity" in result.lower()
+
     def test_overlay_includes_success_section(self, tmp_path, monkeypatch):
         """Generated overlay should include success patterns section."""
         monkeypatch.setattr(EvolutionEngine, "EVOLUTION_DIR", tmp_path / "evo")
@@ -433,6 +493,61 @@ class TestEvolutionEngine:
         # At least one overlay should have success section
         any_success = any("继续保持" in content for content in written.values())
         assert any_success
+
+    def test_overlay_success_patterns_are_agent_relevant(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(EvolutionEngine, "EVOLUTION_DIR", tmp_path / "evo")
+        engine = EvolutionEngine()
+        for _ in range(3):
+            engine.record_outcome(
+                "proj",
+                "reflection",
+                ["SSH connection failed"],
+                5.0,
+                success_patterns=["GPU retry kept experiments moving"],
+            )
+        for _ in range(3):
+            engine.record_outcome(
+                "proj",
+                "reflection",
+                ["Paper writing clarity issues"],
+                6.0,
+                success_patterns=["Paper clarity pass improved readability"],
+            )
+        written = engine.generate_lessons_overlay()
+        assert "GPU retry kept experiments moving" in written["experimenter"]
+        assert "Paper clarity pass improved readability" not in written["experimenter"]
+
+    def test_overlay_success_counts_use_real_outcome_frequency(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(EvolutionEngine, "EVOLUTION_DIR", tmp_path / "evo")
+        engine = EvolutionEngine()
+        for _ in range(3):
+            engine.record_outcome(
+                "proj",
+                "reflection",
+                ["Paper writing clarity issues"],
+                6.0,
+                success_patterns=["paper clarity pass"],
+            )
+        for _ in range(3):
+            engine.record_outcome(
+                "proj",
+                "reflection",
+                ["Appendix missing"],
+                6.0,
+                success_patterns=["paper clarity pass"],
+            )
+        written = engine.generate_lessons_overlay()
+        assert "paper clarity pass (出现 6 次)" in written["section_writer"]
+
+    def test_generate_overlay_cleans_stale_files_without_insights(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(EvolutionEngine, "EVOLUTION_DIR", tmp_path / "evo")
+        engine = EvolutionEngine()
+        stale_path = engine.EVOLUTION_DIR / "lessons" / "stale_agent.md"
+        stale_path.parent.mkdir(parents=True, exist_ok=True)
+        stale_path.write_text("stale", encoding="utf-8")
+        written = engine.generate_lessons_overlay()
+        assert written == {}
+        assert not stale_path.exists()
 
     def test_self_check_declining_trend(self, tmp_path, monkeypatch):
         """Declining scores should trigger diagnostic."""

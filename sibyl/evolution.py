@@ -463,7 +463,7 @@ class EvolutionEngine:
                     record = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if _is_synthetic_test_record(record):
+                if self.EVOLUTION_DIR == SYSTEM_EVOLUTION_DIR and _is_synthetic_test_record(record):
                     continue
                 normalized_issues: list[dict] = []
                 for issue in record.get("classified_issues", []):
@@ -788,14 +788,16 @@ class EvolutionEngine:
             for ins in insights_list:
                 if ins.category:
                     agent_cats.add(ins.category)
-            relevant_success_counts: dict[str, int] = {}
+            relevant_successes: set[str] = set()
             for entry in digest:
                 if entry.category not in agent_cats:
                     continue
                 for success_pattern in entry.success_patterns:
-                    relevant_success_counts[success_pattern] = (
-                        relevant_success_counts.get(success_pattern, 0) + 1
-                    )
+                    relevant_successes.add(success_pattern)
+            relevant_success_counts: dict[str, int] = {
+                success_pattern: all_success.get(success_pattern, 1)
+                for success_pattern in relevant_successes
+            }
             if not relevant_success_counts and agent_cats:
                 agent_keywords = {
                     keyword
