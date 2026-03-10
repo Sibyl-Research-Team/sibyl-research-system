@@ -1,0 +1,13 @@
+{
+  "stage": "writing_integrate",
+  "started_at": 1773142067.8755252,
+  "updated_at": 1773142067.87961,
+  "iteration": 0,
+  "errors": [],
+  "paused": false,
+  "paused_at": null,
+  "stop_requested": false,
+  "stop_requested_at": null,
+  "iteration_dirs": false,
+  "stage_started_at": 1773142067.879609
+}
