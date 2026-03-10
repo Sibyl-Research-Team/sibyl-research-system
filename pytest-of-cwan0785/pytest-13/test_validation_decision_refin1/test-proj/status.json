@@ -1,0 +1,18 @@
+{
+  "stage": "experiment_cycle",
+  "started_at": 1773142128.285957,
+  "updated_at": 1773142128.2968938,
+  "iteration": 0,
+  "errors": [
+    {
+      "time": 1773142128.295627,
+      "error": "Idea validation requested more refinement rounds than allowed (1/1); advancing with current best candidate"
+    }
+  ],
+  "paused": false,
+  "paused_at": null,
+  "stop_requested": false,
+  "stop_requested_at": null,
+  "iteration_dirs": false,
+  "stage_started_at": 1773142128.296893
+}
