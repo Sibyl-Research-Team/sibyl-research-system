@@ -1,0 +1,13 @@
+{
+  "stage": "experiment_cycle",
+  "started_at": 1773133588.7233868,
+  "updated_at": 1773133588.7260969,
+  "iteration": 0,
+  "errors": [],
+  "paused": false,
+  "paused_at": null,
+  "stop_requested": false,
+  "stop_requested_at": null,
+  "iteration_dirs": false,
+  "stage_started_at": 1773133588.726096
+}
