@@ -1,0 +1,18 @@
+{
+  "stage": "writing_outline",
+  "started_at": 1773122686.67804,
+  "updated_at": 1773122686.6807868,
+  "iteration": 0,
+  "errors": [
+    {
+      "time": 1773122686.679934,
+      "error": "PIVOT requested but cycle limit reached (1/1)"
+    }
+  ],
+  "paused": false,
+  "paused_at": null,
+  "stop_requested": false,
+  "stop_requested_at": null,
+  "iteration_dirs": false,
+  "stage_started_at": 1773122686.680786
+}
