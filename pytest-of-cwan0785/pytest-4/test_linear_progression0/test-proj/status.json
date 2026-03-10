@@ -1,7 +1,7 @@
 {
-  "stage": "review",
+  "stage": "reflection",
   "started_at": 1773123605.122427,
-  "updated_at": 1773123606.104885,
+  "updated_at": 1773123606.181719,
   "iteration": 0,
   "errors": [
     {
@@ -14,5 +14,5 @@
   "stop_requested": false,
   "stop_requested_at": null,
   "iteration_dirs": false,
-  "stage_started_at": 1773123606.104885
+  "stage_started_at": 1773123606.181719
 }
