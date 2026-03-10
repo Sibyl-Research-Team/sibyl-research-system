@@ -1,0 +1,13 @@
+{
+  "stage": "idea_debate",
+  "started_at": 1773125839.856661,
+  "updated_at": 1773125839.857901,
+  "iteration": 0,
+  "errors": [],
+  "paused": false,
+  "paused_at": null,
+  "stop_requested": false,
+  "stop_requested_at": null,
+  "iteration_dirs": false,
+  "stage_started_at": 1773125839.8579001
+}
