@@ -1,7 +1,7 @@
 {
-  "stage": "planning",
+  "stage": "pilot_experiments",
   "started_at": 1773123605.122427,
-  "updated_at": 1773123605.263278,
+  "updated_at": 1773123605.345792,
   "iteration": 0,
   "errors": [],
   "paused": false,
@@ -9,5 +9,5 @@
   "stop_requested": false,
   "stop_requested_at": null,
   "iteration_dirs": false,
-  "stage_started_at": 1773123605.263278
+  "stage_started_at": 1773123605.345792
 }
