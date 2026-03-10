@@ -1,0 +1,31 @@
+language: zh
+ssh_server: default
+remote_base: /home/ccwang/sibyl_system
+max_gpus: 2
+gpus_per_task: 1
+max_parallel_tasks: 2
+gpu_poll_enabled: true
+gpu_free_threshold_mb: 2000
+gpu_poll_interval_sec: 30
+gpu_poll_max_attempts: 20
+gpu_aggressive_mode: true
+gpu_aggressive_threshold_pct: 80
+experiment_timeout: 180
+pilot_samples: 8
+pilot_timeout: 180
+pilot_seeds:
+- 42
+full_seeds:
+- 42
+debate_rounds: 2
+writing_revision_rounds: 2
+idea_exp_cycles: 2
+review_enabled: true
+writing_mode: parallel
+experiment_mode: ssh_mcp
+codex_enabled: false
+lark_enabled: false
+iteration_dirs: true
+remote_env_type: conda
+remote_conda_path: /home/ccwang/miniforge3/bin/conda
+remote_conda_env_name: base

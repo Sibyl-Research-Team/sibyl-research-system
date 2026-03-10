@@ -1,0 +1,26 @@
+{
+  "demo_name": "remote_parallel_smoke",
+  "project_name": "demo-smoke",
+  "required_setup_files": [
+    "spec.md",
+    "config.yaml",
+    "shared/demo_prompts.jsonl",
+    "shared/remote_bootstrap.sh",
+    "shared/remote_registry_patch.json",
+    "idea/references_seed.md"
+  ],
+  "required_runtime_outputs": [
+    "plan/task_plan.json",
+    "exp/gpu_progress.json",
+    "writing/paper.md",
+    "writing/review.md",
+    "writing/latex/main.tex",
+    "writing/latex/main.pdf",
+    "reflection/lessons_learned.md"
+  ],
+  "minimum_parallel_tasks": 2,
+  "required_visual_outputs": [
+    "writing/figures",
+    "writing/latex/figures"
+  ]
+}
