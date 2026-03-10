@@ -1,0 +1,12 @@
+{"id":"math_01","category":"math","prompt":"Answer in one short sentence: what is 2 + 2?","expected_keywords":["4","four"]}
+{"id":"math_02","category":"math","prompt":"Answer with only the number: what is 7 minus 3?","expected_keywords":["4"]}
+{"id":"summ_01","category":"summary","prompt":"Summarize this in five words or fewer: The cat slept on the warm sofa all afternoon.","expected_keywords":["cat","sofa"]}
+{"id":"summ_02","category":"summary","prompt":"Give a very short summary: Rain delayed the outdoor concert until the next evening.","expected_keywords":["rain","concert","delayed"]}
+{"id":"cls_01","category":"classification","prompt":"Classify the sentiment as positive or negative: I loved the movie and would watch it again.","expected_keywords":["positive"]}
+{"id":"cls_02","category":"classification","prompt":"Classify the sentiment as positive or negative: The service was slow and the food was cold.","expected_keywords":["negative"]}
+{"id":"extract_01","category":"extraction","prompt":"Extract the city name: Alice moved from Perth to Sydney last year.","expected_keywords":["Sydney"]}
+{"id":"extract_02","category":"extraction","prompt":"Extract the animal name: The red fox jumped over the log.","expected_keywords":["fox"]}
+{"id":"follow_01","category":"instruction","prompt":"Reply with exactly one color word: the sky on a clear day is","expected_keywords":["blue"]}
+{"id":"follow_02","category":"instruction","prompt":"Reply with exactly one fruit word: a common yellow fruit is","expected_keywords":["banana"]}
+{"id":"format_01","category":"format","prompt":"Answer with a JSON object containing one key named result and the value true.","expected_keywords":["result","true"]}
+{"id":"format_02","category":"format","prompt":"Answer with one lowercase word that means the opposite of hot.","expected_keywords":["cold"]}
