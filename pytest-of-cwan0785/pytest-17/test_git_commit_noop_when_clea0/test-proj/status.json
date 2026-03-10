@@ -1,0 +1,13 @@
+{
+  "stage": "init",
+  "started_at": 1773142207.546436,
+  "updated_at": 1773142207.5489762,
+  "iteration": 0,
+  "errors": [],
+  "paused": false,
+  "paused_at": null,
+  "stop_requested": false,
+  "stop_requested_at": null,
+  "iteration_dirs": false,
+  "stage_started_at": 1773142207.5489762
+}
