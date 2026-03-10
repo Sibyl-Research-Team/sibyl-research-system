@@ -19,3 +19,7 @@ packages = ["sibyl"]
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["workspaces", "pytest-of-*", ".git", ".venv"]

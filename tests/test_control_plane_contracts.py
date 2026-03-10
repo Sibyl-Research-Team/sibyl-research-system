@@ -74,6 +74,9 @@ def test_sibyl_skill_prompt_loaders_are_workspace_aware():
 
 def test_no_stale_user_home_evolution_paths_in_skills():
     checked = [
+        REPO_ROOT / "README.md",
+        REPO_ROOT / "README_CN.md",
+        REPO_ROOT / "plugin" / "commands" / "evolve.md",
         *sorted((REPO_ROOT / ".claude" / "skills").glob("*/SKILL.md")),
         *sorted((REPO_ROOT / "docs").glob("*.md")),
     ]

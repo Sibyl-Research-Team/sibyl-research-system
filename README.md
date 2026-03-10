@@ -15,12 +15,12 @@ Sibyl is a **fully automated scientific discovery system** that autonomously dri
 What truly sets Sibyl apart is its **dual-loop architecture**:
 
 - **Inner Loop — Research Iteration**: Each project automatically iterates across every dimension — refining hypotheses based on experiment results, re-planning experiments, rewriting papers, pivoting to alternative ideas when needed — until quality meets publication standards.
-- **Outer Loop — System Self-Evolution**: Sibyl learns from the research process itself. After every iteration, it classifies issues across 8 categories, tracks which lessons actually improve outcomes, and automatically updates its own agent prompts, scheduling strategies, and architectural patterns. **The system that runs your research is itself getting better at running research.**
+- **Outer Loop — System Self-Evolution**: Sibyl learns from the research process itself. After every iteration, it classifies issues across 8 categories, accumulates reusable lessons, and automatically updates its own agent prompts, scheduling strategies, and architectural patterns. **The system that runs your research is itself getting better at running research.**
 
 ### What Makes Sibyl Different?
 
 - **Autonomous Multi-Dimensional Iteration** — Not just "run experiments and write a paper." Every aspect of the research improves automatically across iterations: ideas sharpen through multi-agent debate, experiments expand with better baselines and ablations, writing tightens under 6-agent cross-review, and resource utilization optimizes through GPU scheduling feedback. The quality gate decides when to stop or pivot — no human in the loop.
-- **Self-Evolving System** — Most AI research tools are static — they run the same way every time. Sibyl evolves. It extracts lessons from every research iteration (issues, success patterns, efficiency metrics), evaluates their effectiveness over time, and injects proven improvements back into agent prompts. Ineffective lessons are automatically deprioritized. Across projects, the system accumulates institutional knowledge — each project makes every future project better.
+- **Self-Evolving System** — Most AI research tools are static — they run the same way every time. Sibyl evolves. It extracts lessons from every research iteration (issues, success patterns, efficiency metrics), keeps them time-weighted and context-filtered, and injects the relevant ones back into agent prompts. Across projects, the system accumulates institutional knowledge — each project makes every future project better.
 - **Claude Code Native** — Not a wrapper around API calls. Built directly on Claude Code's architecture (fork skills, agent teams, MCP tools), inheriting its full ecosystem: SSH remote execution, multi-model collaboration (Claude + GPT-5.4 cross-review), Feishu/Lark cloud sync, and more.
 
 ---
@@ -271,14 +271,14 @@ Research Iteration completes
        |                    ├── Idea novelty & contribution
        |                    └── System reliability, analysis depth, planning, pipeline
        v
-  Evolution Engine ──> Track & evaluate lessons
+  Evolution Engine ──> Track & rank lessons
        |                    ├── Time-weighted frequency analysis (30-day half-life)
-       |                    ├── Effectiveness scoring (early vs late iteration comparison)
+       |                    ├── Schema-normalized issue clustering (stable issue keys)
        |                    └── Success pattern extraction (what to keep doing)
        v
-  Auto-Update ──> Inject proven improvements into agent prompts
-       |              ├── Effective lessons: boosted priority
-       |              ├── Ineffective lessons: 0.3x deprioritized (auto-pruned)
+  Auto-Update ──> Inject relevant improvements into agent prompts
+       |              ├── Context-aware overlay filtering per agent/stage
+       |              ├── Stale overlays removed automatically
        |              └── Efficiency insights: scheduling & resource optimization
        v
   Self-Check ──> Detect systemic anomalies
@@ -294,7 +294,7 @@ Most AI systems that claim to "learn" are stateful processes — they accumulate
 - **Every prompt is loaded from disk at call time.** There is no in-memory cache, no long-running daemon. Each agent reads its prompt file (`sibyl/prompts/*.md`) fresh every time it is invoked. If the evolution engine rewrites a prompt, the very next agent call picks up the change — zero restart, zero redeployment.
 - **Every agent runs as an independent subprocess.** Skills execute via `python3 -c "..."` in a fresh process, so Python modules are re-imported every time. Code changes in `sibyl/*.py` take effect immediately on the next stage.
 - **Config is re-parsed per orchestrator call.** `cli_next()` instantiates a new `Orchestrator` each time, re-reading `config.yaml` from disk. Parameter tuning by the evolution engine is picked up on the next tick.
-- **Lesson overlays are plain files.** Experience extracted from past projects is written to `~/.claude/sibyl_evolution/lessons/{agent}.md`. The `load_prompt()` function appends the overlay content on every call — new lessons are injected into the next agent invocation automatically.
+- **Lesson overlays are plain files.** Experience extracted from past projects is written to `.sibyl/evolution/lessons/{agent}.md` (or the runtime path overridden by `SIBYL_STATE_DIR` / `SIBYL_EVOLUTION_DIR`). The `load_prompt()` function appends the overlay content on every call — new lessons are injected into the next agent invocation automatically.
 
 This means evolution is not a "batch update" that requires a maintenance window. It is a **continuous, incremental process**: the system that runs iteration N+1 is already different from the one that ran iteration N, because the reflection after iteration N has already modified prompts, overlays, and potentially code on disk. The entire system is designed so that **every file is the source of truth, and every file is read fresh** — making self-evolution a natural consequence of the architecture rather than a bolted-on feature.
 
@@ -474,10 +474,10 @@ Lessons learned in one project automatically improve all future projects:
 
 1. **Record**: Classify issues (8 categories) and success patterns after each iteration
 2. **Analyze**: Aggregate with time-decay weighting (30-day half-life) — recent lessons matter more
-3. **Evaluate**: Compare early vs late scores to verify whether lessons actually helped (requires >= 4 occurrences)
-4. **Apply**: Generate per-agent prompt overlays — each agent receives only the lessons relevant to its role
-5. **Prune**: Ineffective lessons are automatically deprioritized (x0.3), preventing bad advice from persisting
-6. **Self-Check**: Detect quality decline, recurring unresolved errors, and ineffective lesson accumulation
+3. **Normalize**: Canonicalize action plans (category/severity/status/trajectory) and assign stable `issue_key`s
+4. **Apply**: Generate per-agent prompt overlays — each agent receives only the lessons relevant to its role and current context
+5. **Prune**: Remove stale overlays automatically when no longer supported by current insights
+6. **Self-Check**: Detect quality decline and recurring unresolved errors
 
 ### PIVOT Mechanism
 

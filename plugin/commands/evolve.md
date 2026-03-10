@@ -17,7 +17,7 @@ cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.evolution import EvolutionEng
 
 ## 步骤 2: 如果进化过程修改了系统文件（CRITICAL）
 
-如果本次进化修改了 `sibyl/`、`sibyl/prompts/`、`plugin/`、`.claude/` 下的任何系统文件（不包括 `~/.claude/sibyl_evolution/lessons/` 下的 overlay 文件），**必须**执行以下安全流程：
+如果本次进化修改了 `sibyl/`、`sibyl/prompts/`、`plugin/`、`.claude/` 下的任何系统文件（不包括 `.sibyl/evolution/lessons/` 下的 overlay 文件，以及由 `SIBYL_STATE_DIR` / `SIBYL_EVOLUTION_DIR` 重定向的运行时 overlay 文件），**必须**执行以下安全流程：
 
 1. **编写测试**: 为修改的系统代码在 `tests/` 中添加对应测试用例
 2. **运行测试**:
