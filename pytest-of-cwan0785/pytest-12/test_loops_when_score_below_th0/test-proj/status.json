@@ -1,0 +1,13 @@
+{
+  "stage": "literature_search",
+  "started_at": 1773142064.063145,
+  "updated_at": 1773142064.0780969,
+  "iteration": 2,
+  "errors": [],
+  "paused": false,
+  "paused_at": null,
+  "stop_requested": false,
+  "stop_requested_at": null,
+  "iteration_dirs": false,
+  "stage_started_at": 1773142064.078096
+}
