@@ -1,7 +1,7 @@
 {
-  "stage": "writing_final_review",
+  "stage": "writing_latex",
   "started_at": 1773122698.774369,
-  "updated_at": 1773122699.584022,
+  "updated_at": 1773122699.651423,
   "iteration": 0,
   "errors": [
     {
@@ -14,5 +14,5 @@
   "stop_requested": false,
   "stop_requested_at": null,
   "iteration_dirs": false,
-  "stage_started_at": 1773122699.584021
+  "stage_started_at": 1773122699.651422
 }
