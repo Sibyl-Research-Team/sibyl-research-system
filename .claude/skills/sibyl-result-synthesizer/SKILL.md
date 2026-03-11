@@ -4,10 +4,10 @@ description: Sibyl 结果辩论综合者 agent - 综合6方结果分析形成统
 context: fork
 agent: sibyl-heavy
 user-invocable: false
-allowed-tools: Read, Write, Glob, Grep
+allowed-tools: Read, Write, Glob, Grep, Skill
 ---
 
-!`SIBYL_WORKSPACE="$ARGUMENTS[0]" .venv/bin/python3 -c "from sibyl.orchestrate import load_prompt, load_common_prompt; import os; ws = os.environ.get('SIBYL_WORKSPACE', ''); print(load_common_prompt(ws)); print('---'); print(load_prompt('result_synthesizer', workspace_path=ws))"`
+!`SIBYL_WORKSPACE="$ARGUMENTS[0]" .venv/bin/python3 -c "from sibyl.orchestrate import render_skill_prompt; import os; ws = os.environ.get('SIBYL_WORKSPACE', ''); print(render_skill_prompt('result_synthesizer', workspace_path=ws))"`
 
 AGENT_NAME: sibyl-result-synthesizer
 AGENT_TIER: sibyl-heavy

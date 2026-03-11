@@ -7,7 +7,7 @@ user-invocable: true
 allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Skill, Agent
 ---
 
-!`.venv/bin/python3 -c "from sibyl.orchestrate import load_prompt; print(load_prompt('self_healer'))"`
+!`.venv/bin/python3 -c "from sibyl.orchestrate import render_skill_prompt; print(render_skill_prompt('self_healer'))"`
 
 ## Repair Task
 

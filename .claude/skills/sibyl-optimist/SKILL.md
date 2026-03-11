@@ -4,10 +4,10 @@ description: Sibyl 乐观分析者 agent - 从积极角度分析实验结果
 context: fork
 agent: sibyl-light
 user-invocable: false
-allowed-tools: Read, Write, Glob, Grep, Bash
+allowed-tools: Read, Write, Glob, Grep, Bash, Skill
 ---
 
-!`SIBYL_WORKSPACE="$ARGUMENTS[0]" .venv/bin/python3 -c "from sibyl.orchestrate import load_prompt, load_common_prompt; import os; ws = os.environ.get('SIBYL_WORKSPACE', ''); print(load_common_prompt(ws)); print('---'); print(load_prompt('optimist', workspace_path=ws))"`
+!`SIBYL_WORKSPACE="$ARGUMENTS[0]" .venv/bin/python3 -c "from sibyl.orchestrate import render_skill_prompt; import os; ws = os.environ.get('SIBYL_WORKSPACE', ''); print(render_skill_prompt('optimist', workspace_path=ws))"`
 
 AGENT_NAME: sibyl-optimist
 AGENT_TIER: sibyl-light
