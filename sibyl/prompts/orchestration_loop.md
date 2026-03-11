@@ -10,13 +10,14 @@
 from sibyl.orchestrate import cli_next       # 获取下一步 action
 from sibyl.orchestrate import cli_record     # 记录阶段完成并推进
 from sibyl.orchestrate import cli_pause      # 仅供 /stop 写入人工停止标记
-from sibyl.orchestrate import cli_resume     # 清除停止/遗留暂停标记并恢复项目
+from sibyl.orchestrate import cli_resume     # 清除停止/遗留暂停标记并恢复项目，返回恢复提示
 from sibyl.orchestrate import cli_status     # 查看项目状态
 from sibyl.orchestrate import cli_list_projects  # 列出所有项目
 from sibyl.orchestrate import cli_init       # 初始化（topic 模式）
 from sibyl.orchestrate import cli_init_from_spec # 初始化（spec 模式）
 from sibyl.orchestrate import cli_dispatch_tasks # 动态调度: 空闲 GPU 派发排队任务
 from sibyl.orchestrate import cli_experiment_status # 实验状态面板（含进度、运行任务、预估时间）
+from sibyl.orchestrate import cli_experiment_supervisor_drain_wake # 读取后台 supervisor 的主系统唤醒请求
 from sibyl.orchestrate import cli_sentinel_session  # 保存 session ID 供 Sentinel 使用
 from sibyl.orchestrate import cli_sentinel_config   # 获取 Sentinel 配置状态
 ```
@@ -62,12 +63,20 @@ LOOP:
        实验完成后，编排器会自动检查是否有剩余任务并循环执行下一批。
 
        **实验监控与动态调度（experiment_monitor）：**
-       如果 action 包含 experiment_monitor 字段，在启动实验 skill 的同时：
+       如果 `skill` / `skills_parallel` / `experiment_wait` action 包含 experiment_monitor 字段，在启动实验 skill 的同时：
+       - **立即**用 Agent tool (`run_in_background=true`) 启动 `experiment_monitor.background_agent`
+       - 该后台 supervisor 负责刷新 GPU 空闲状态、派发排队任务、以及发现运行时间/状态漂移后的干预
+       - 主系统必须把 `experiment_monitor.wake_cmd` 当作高优先级 inbox：后台 supervisor 会把“重大结果”或“需要主系统参与”的事项主动投递到这里
+       - 不要等待它完成；主循环继续按下面的 experiment_wait / 状态面板协议工作
 
        **监控轮询循环（SSH MCP 模式）：**
        ```
        WHILE true:
-         1. 等待 experiment_monitor.poll_interval_sec 秒
+         1. 不要整段傻睡；按 `min(experiment_monitor.wake_check_interval_sec, experiment_monitor.poll_interval_sec)` 分段 sleep
+            每段 sleep 结束先调用 `experiment_monitor.wake_cmd`
+            如果返回 `wake_requested=true`：
+              - 立即停止等待，先处理 events
+              - 若任一 event.requires_main_system=true 或 kind=needs_main_system，主系统必须立刻介入，不要等到下一轮大轮询
          2. 用 SSH MCP execute-command 执行 check_cmd，解析 task_id:DONE/PENDING
          3. **打印状态面板（每次轮询必须执行）：**
             调用 cli_experiment_status 获取状态 JSON:
@@ -136,7 +145,12 @@ LOOP:
        **绝对不要暂停项目**，必须持续轮询直到所有任务完成。
        ```
        WHILE true:
-         1. 等待 experiment_monitor.poll_interval_sec 秒（使用 sleep）
+         1. 不要一次 sleep 到下个大轮询点；按 `experiment_monitor.wake_check_interval_sec` 分段 sleep
+            每段 sleep 结束后先执行:
+            .venv/bin/python3 -c "from sibyl.orchestrate import cli_experiment_supervisor_drain_wake; cli_experiment_supervisor_drain_wake('WORKSPACE_PATH')"
+            如果返回 `wake_requested: true`：
+              - 立即读取 events
+              - 如果事件表示“已解决关键问题”或“需要主系统参与”，立刻跳出等待分支处理，不要拖到下一个 2/5/10 分钟轮询
          2. 用 SSH MCP execute-command 执行 check_cmd，解析 task_id:DONE/PENDING
          3. **打印状态面板（每次轮询必须执行）：**
             调用 cli_experiment_status:
@@ -151,6 +165,7 @@ LOOP:
             .venv/bin/python3 -c "from sibyl.orchestrate import cli_dispatch_tasks; cli_dispatch_tasks('WORKSPACE_PATH')"
             如果返回 dispatch 非空，为每个 skill 启动新 Agent（run_in_background）
          6. 可选：用 pid_check_cmd 检查进程存活，用 progress_check_cmd 查看详细进度
+            如果后台 supervisor 已经在 events 里提供诊断/已做动作/建议下一步，优先复用，不要重复排查同一问题
          7. **同步实验状态（跳出循环前必须执行）：**
             生成 SSH 检测脚本并执行恢复，确保 experiment_state.json 与远程状态一致：
             a. 生成检测脚本:
@@ -232,6 +247,9 @@ LOOP:
         - 触发日志: `WORKSPACE_PATH/lark_sync/pending_sync.jsonl`
         - 同步结果: `WORKSPACE_PATH/lark_sync/sync_status.json`
         - 手动触发: `/sibyl-research:sync {project}`
+        - 如果会话是在 `/sibyl-research:resume` 或 `/sibyl-research:continue` 后恢复，
+          也要检查 `pending_sync.jsonl`；只要还有未消费条目，就先把 `sibyl-lark-sync`
+          后台 agent 重新拉起来，再继续主循环
 
      d. 压缩上下文:
         - 执行 /compact 压缩当前会话上下文

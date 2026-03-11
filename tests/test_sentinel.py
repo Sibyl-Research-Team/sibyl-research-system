@@ -112,6 +112,12 @@ class TestSentinelConfig:
         (workspace / "sentinel_session.json").write_text(
             json.dumps({"session_id": "test-sess", "saved_at": time.time()})
         )
+        (workspace / ".sibyl").mkdir(parents=True, exist_ok=True)
+        (workspace / ".sibyl" / "recovery_state.json").write_text(json.dumps({
+            "source": "cli_resume",
+            "pending_sync_count": 1,
+            "background_agent_required": True,
+        }))
         _write_sentinel_heartbeat(str(workspace), "experiment_cycle", "cli_next")
 
         old_stdout = sys.stdout
@@ -131,6 +137,8 @@ class TestSentinelConfig:
         assert data["ralph_prompt_path"].endswith("/.claude/ralph-prompt.txt")
         assert "heartbeat" in data
         assert data["heartbeat"]["stage"] == "experiment_cycle"
+        assert data["recovery"]["pending_sync_count"] == 1
+        assert data["recovery"]["background_agent_required"] is True
 
     def test_detects_running_experiments(self, workspace):
         # Write experiment_state with running task

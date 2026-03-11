@@ -86,6 +86,54 @@ Auxiliary commands:
     dispatch_p = sub.add_parser("dispatch", help="Internal dynamic-dispatch helper")
     dispatch_p.add_argument("workspace", help="Workspace path")
 
+    exp_status_p = sub.add_parser("experiment-status", help="Internal experiment status helper")
+    exp_status_p.add_argument("workspace", help="Workspace path")
+
+    exp_supervisor_claim_p = sub.add_parser("experiment-supervisor-claim", help="Internal experiment supervisor lease helper")
+    exp_supervisor_claim_p.add_argument("workspace", help="Workspace path")
+    exp_supervisor_claim_p.add_argument("--owner", required=True, help="Background agent owner id")
+    exp_supervisor_claim_p.add_argument("--stale-after", type=int, default=900, help="Heartbeat staleness threshold in seconds")
+
+    exp_supervisor_hb_p = sub.add_parser("experiment-supervisor-heartbeat", help="Internal experiment supervisor heartbeat helper")
+    exp_supervisor_hb_p.add_argument("workspace", help="Workspace path")
+    exp_supervisor_hb_p.add_argument("--owner", required=True, help="Background agent owner id")
+    exp_supervisor_hb_p.add_argument("--summary", default="", help="Latest summary")
+    exp_supervisor_hb_p.add_argument("--actions-json", default="[]", help="JSON list of latest actions")
+    exp_supervisor_hb_p.add_argument("--recommendations-json", default="[]", help="JSON list of recommendations")
+
+    exp_supervisor_notify_p = sub.add_parser("experiment-supervisor-notify-main", help="Internal experiment supervisor wake helper")
+    exp_supervisor_notify_p.add_argument("workspace", help="Workspace path")
+    exp_supervisor_notify_p.add_argument("--owner", required=True, help="Background agent owner id")
+    exp_supervisor_notify_p.add_argument("--kind", default="resolution", help="Wake event kind")
+    exp_supervisor_notify_p.add_argument("--summary", default="", help="Wake summary")
+    exp_supervisor_notify_p.add_argument("--details-json", default="{}", help="JSON object with structured details")
+    exp_supervisor_notify_p.add_argument("--actions-json", default="[]", help="JSON list of actions already taken")
+    exp_supervisor_notify_p.add_argument("--recommendations-json", default="[]", help="JSON list of recommended follow-ups")
+    exp_supervisor_notify_p.add_argument("--urgency", default="high", help="Wake urgency level")
+    exp_supervisor_notify_p.add_argument("--requires-main-system", action="store_true", help="Mark this wake as requiring immediate main-system collaboration")
+
+    exp_supervisor_release_p = sub.add_parser("experiment-supervisor-release", help="Internal experiment supervisor release helper")
+    exp_supervisor_release_p.add_argument("workspace", help="Workspace path")
+    exp_supervisor_release_p.add_argument("--owner", required=True, help="Background agent owner id")
+    exp_supervisor_release_p.add_argument("--status", default="idle", help="Final supervisor status")
+    exp_supervisor_release_p.add_argument("--summary", default="", help="Final summary")
+
+    exp_supervisor_drain_p = sub.add_parser("experiment-supervisor-drain-wake", help="Internal experiment supervisor wake drain helper")
+    exp_supervisor_drain_p.add_argument("workspace", help="Workspace path")
+
+    exp_supervisor_snapshot_p = sub.add_parser("experiment-supervisor-snapshot", help="Internal experiment supervisor snapshot helper")
+    exp_supervisor_snapshot_p.add_argument("workspace", help="Workspace path")
+
+    record_gpu_poll_p = sub.add_parser("record-gpu-poll", help="Internal GPU polling snapshot helper")
+    record_gpu_poll_p.add_argument("workspace", help="Workspace path")
+    record_gpu_poll_p.add_argument("--nvidia-smi-output", required=True, help="Raw nvidia-smi CSV output")
+    record_gpu_poll_p.add_argument("--source", default="experiment_supervisor", help="Snapshot source label")
+
+    requeue_exp_task_p = sub.add_parser("requeue-experiment-task", help="Internal experiment retry helper")
+    requeue_exp_task_p.add_argument("workspace", help="Workspace path")
+    requeue_exp_task_p.add_argument("task_id", help="Task id to requeue")
+    requeue_exp_task_p.add_argument("--reason", default="", help="Reason for retry")
+
     self_heal_p = sub.add_parser("self-heal-scan", help="Internal self-heal scan helper")
     self_heal_p.add_argument("workspace", nargs="?", default=None, help="Workspace path")
 
@@ -116,6 +164,76 @@ Auxiliary commands:
     if args.command == "dispatch":
         from sibyl.orchestrate import cli_dispatch_tasks
         cli_dispatch_tasks(args.workspace)
+        return
+
+    if args.command == "experiment-status":
+        from sibyl.orchestrate import cli_experiment_status
+        cli_experiment_status(args.workspace)
+        return
+
+    if args.command == "experiment-supervisor-claim":
+        from sibyl.orchestrate import cli_experiment_supervisor_claim
+        cli_experiment_supervisor_claim(args.workspace, args.owner, stale_after_sec=args.stale_after)
+        return
+
+    if args.command == "experiment-supervisor-heartbeat":
+        from sibyl.orchestrate import cli_experiment_supervisor_heartbeat
+        cli_experiment_supervisor_heartbeat(
+            args.workspace,
+            args.owner,
+            summary=args.summary,
+            actions_json=args.actions_json,
+            recommendations_json=args.recommendations_json,
+        )
+        return
+
+    if args.command == "experiment-supervisor-notify-main":
+        from sibyl.orchestrate import cli_experiment_supervisor_notify_main
+        cli_experiment_supervisor_notify_main(
+            args.workspace,
+            args.owner,
+            kind=args.kind,
+            summary=args.summary,
+            details_json=args.details_json,
+            actions_json=args.actions_json,
+            recommendations_json=args.recommendations_json,
+            urgency=args.urgency,
+            requires_main_system=args.requires_main_system,
+        )
+        return
+
+    if args.command == "experiment-supervisor-release":
+        from sibyl.orchestrate import cli_experiment_supervisor_release
+        cli_experiment_supervisor_release(
+            args.workspace,
+            args.owner,
+            final_status=args.status,
+            summary=args.summary,
+        )
+        return
+
+    if args.command == "experiment-supervisor-drain-wake":
+        from sibyl.orchestrate import cli_experiment_supervisor_drain_wake
+        cli_experiment_supervisor_drain_wake(args.workspace)
+        return
+
+    if args.command == "experiment-supervisor-snapshot":
+        from sibyl.orchestrate import cli_experiment_supervisor_snapshot
+        cli_experiment_supervisor_snapshot(args.workspace)
+        return
+
+    if args.command == "record-gpu-poll":
+        from sibyl.orchestrate import cli_record_gpu_poll
+        cli_record_gpu_poll(
+            args.workspace,
+            args.nvidia_smi_output,
+            source=args.source,
+        )
+        return
+
+    if args.command == "requeue-experiment-task":
+        from sibyl.orchestrate import cli_requeue_experiment_task
+        cli_requeue_experiment_task(args.workspace, args.task_id, reason=args.reason)
         return
 
     if args.command == "self-heal-scan":

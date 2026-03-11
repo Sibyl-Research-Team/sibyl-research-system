@@ -38,12 +38,12 @@ PROJECT_NAME="$(basename "$TARGET_WORKSPACE")"
 cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_status; cli_status('$TARGET_WORKSPACE')"
 ```
 
-2.5. **如果检测到手动 stop 或遗留 pause 标记，先清理状态**：
-   - 如果 `cli_status` 输出里 `stop_requested == true`，立即执行：
+2.5. **统一执行 `cli_resume`，既清理状态也拿到恢复提示**：
    ```bash
-   cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_resume; cli_resume('$TARGET_WORKSPACE')"
+   RESUME_JSON=$(cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_resume; cli_resume('$TARGET_WORKSPACE')")
+   echo "$RESUME_JSON"
    ```
-   - 如果 `paused == true` 但 `stop_requested == false`，这是遗留暂停标记；可以直接继续，因为 `cli_next()` 会自动清除。如果你希望先显式清理，也可以调用同一条 `cli_resume`。
+   - 这一步即使项目本来没有 stop / pause 也安全，作用是统一拿到“恢复哪些后台 hook / agent”的提示。
 
 3. **更新 Session / Pane 归属供 Sentinel 使用，并先检查是否和其他项目冲突**：
    ```bash
@@ -66,7 +66,16 @@ cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_status
    ```
    读取输出内容获取运行时 control-plane protocol。
 
-5. **进入编排循环**：
+5. **先恢复中断前的后台 hook / agent**：
+   - 优先读取 `RESUME_JSON.recovery`；如果 shell 变量丢失，可重新运行 `cli_status` 并读取 `status.recovery`。
+   - 如果 `RESUME_JSON` 里的 `pending_sync_count > 0`，立刻用 Agent tool 以 `run_in_background=true`
+     启动 Skill `sibyl-lark-sync`，参数为 `TARGET_WORKSPACE`。不要等待完成。
+   - 如果 `RESUME_JSON.background_agent_required == true`，读取
+     `RESUME_JSON.resume_action.experiment_monitor.background_agent`，按其中的 `name` 和 `args`
+     原样用 Agent tool 以 `run_in_background=true` 重启后台 experiment supervisor。不要等待完成。
+   - 以上恢复动作只做一次；完成后再进入编排循环。
+
+6. **进入编排循环**：
    按加载的编排循环定义中的 LOOP 流程执行，将所有 `WORKSPACE_PATH` 替换为 `TARGET_WORKSPACE`。
 
    如果 breadcrumb 显示 `in_loop == true`（中断前在轮询循环中），直接调用 `cli_next` 获取最新状态并恢复轮询，不需要重新执行已完成的阶段。

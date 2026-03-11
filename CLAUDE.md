@@ -114,6 +114,8 @@ Sibyl 的所有 agent 角色已封装为 `context: fork` skill，运行在独立
 3. 返回 {dispatch: [...assignments], skills: [...skill_dicts]}
 4. 为每个 skill 启动新 experimenter Agent
 ```
+- 从现在开始，`experiment_monitor.background_agent` 会在实验启动时被固定拉起为后台 supervisor。
+- 它负责周期性刷新 GPU 空闲状态、补做动态调度、以及发现运行时间/状态和预估不一致时的主动干预。
 - `gpu_progress.json` 新增 `running` map: 跟踪运行中任务的 GPU 占用
 - `register_running_tasks()` / `unregister_running_task()`: 注册/注销运行中任务
 - `get_next_batch()` 同时排除 completed 和 running 任务
@@ -126,7 +128,10 @@ Sibyl 的所有 agent 角色已封装为 `context: fork` skill，运行在独立
 - **低 token 消耗**: 轮询等待期间使用 sleep，不做 LLM 推理
 - **状态面板**: 每次轮询后调用 `cli_experiment_status` 打印进度横幅
 - **动态调度**: 检测到任务完成后调用 `cli_dispatch_tasks` 派发排队任务
-- Action 包含 `experiment_monitor` 字段: `check_cmd`(DONE 检查), `pid_check_cmd`(进程存活), `progress_check_cmd`(详细进度), `status_cmd`(状态面板), `poll_interval_sec`(轮询间隔)
+- **后台 supervisor**: Action 的 `experiment_monitor.background_agent` 必须用 `run_in_background` 启动，不阻塞主循环
+- **主系统唤醒 inbox**: Action 还包含 `wake_cmd` 和 `wake_check_interval_sec`，默认每 90 秒检查一次；主系统等待实验时不可一口气睡到下一个大轮询点
+- 当 `wake_cmd` 返回需要协作的事件时，主系统要立即介入；不要等到下一个 2/5/10 分钟大轮询
+- Action 包含 `experiment_monitor` 字段: `check_cmd`(DONE 检查), `pid_check_cmd`(进程存活), `progress_check_cmd`(详细进度), `status_cmd`(状态面板), `poll_interval_sec`(大轮询间隔), `wake_check_interval_sec`(短周期唤醒检查), `wake_cmd`(后台 supervisor 协作 inbox), `background_agent`(后台实验监督 skill)
 
 ### 暂停标记处理
 - `status.json` 使用显式 `paused` / `stop_requested` 布尔值，并保留可选时间戳用于诊断；若存在遗留 `paused_at` 标记，`cli_next()` 会自动清除并继续执行，不会把项目卡在“暂停等待人工恢复”

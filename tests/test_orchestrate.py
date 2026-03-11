@@ -9,9 +9,13 @@ import pytest
 from sibyl.orchestrate import (
     FarsOrchestrator, load_prompt, load_common_prompt,
     render_skill_prompt, render_control_plane_prompt,
-    PAPER_SECTIONS, cli_checkpoint, cli_dispatch_tasks,
+    PAPER_SECTIONS, cli_checkpoint, cli_dispatch_tasks, cli_resume,
     project_marker_file, self_heal_monitor_script,
     cli_experiment_status, cli_next, migrate_workspace, collect_dashboard_data,
+    cli_experiment_supervisor_claim, cli_experiment_supervisor_heartbeat,
+    cli_experiment_supervisor_notify_main, cli_experiment_supervisor_release,
+    cli_experiment_supervisor_drain_wake, cli_experiment_supervisor_snapshot,
+    cli_record_gpu_poll, cli_requeue_experiment_task,
 )
 from sibyl.workspace import Workspace
 
@@ -164,9 +168,10 @@ class TestBackgroundSync:
         o.ws.write_file("config.yaml", "lark_enabled: true\ngpu_poll_enabled: false\n")
         monkeypatch.chdir(o.ws.root)
         from sibyl.orchestrate import cli_record
-        cli_record(str(o.ws.root), "literature_search")
+        result = cli_record(str(o.ws.root), "literature_search")
         captured = capsys.readouterr()
         output = json.loads(captured.out)
+        assert result == output
         assert output["sync_requested"] is True
 
     def test_cli_record_no_sync_requested_when_disabled(self, make_orchestrator, capsys, monkeypatch):
@@ -211,9 +216,10 @@ class TestBackgroundSync:
         }
         (sync_dir / "sync_status.json").write_text(json.dumps(status_data))
         from sibyl.orchestrate import cli_status
-        cli_status(str(ws_path))
+        result = cli_status(str(ws_path))
         captured = capsys.readouterr()
         output = json.loads(captured.out)
+        assert result == output
         assert output["lark_sync_status"]["last_sync_success"] is True
 
     def test_cli_status_no_sync_status_when_missing(self, make_orchestrator, capsys):
@@ -225,6 +231,74 @@ class TestBackgroundSync:
         captured = capsys.readouterr()
         output = json.loads(captured.out)
         assert "lark_sync_status" not in output
+
+    def test_cli_resume_reports_pending_hook_and_background_agent(self, make_orchestrator, capsys):
+        from sibyl.experiment_recovery import (
+            ExperimentState, register_task, save_experiment_state,
+        )
+        from sibyl.gpu_scheduler import register_running_tasks
+
+        o = make_orchestrator(stage="experiment_cycle", lark_enabled=True, gpu_poll_enabled=False)
+        o.ws.pause("user_stop")
+        o.ws.write_file(
+            "plan/task_plan.json",
+            json.dumps({"tasks": [{"id": "task_a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 30}]}),
+        )
+        state = ExperimentState()
+        register_task(state, "task_a", gpu_ids=[0])
+        save_experiment_state(o.ws.active_root, state)
+        register_running_tasks(o.ws.active_root, {"task_a": [0]})
+        o.ws.write_file(
+            "lark_sync/pending_sync.jsonl",
+            json.dumps({"trigger_stage": "planning"}) + "\n",
+        )
+
+        result = cli_resume(str(o.ws.root))
+        output = json.loads(capsys.readouterr().out)
+        breadcrumb = json.loads((o.ws.root / "breadcrumb.json").read_text(encoding="utf-8"))
+        recovery_state = json.loads((o.ws.root / ".sibyl" / "recovery_state.json").read_text(encoding="utf-8"))
+
+        assert result == output
+        assert output["status"] == "resumed"
+        assert output["resume_action_type"] == "experiment_wait"
+        assert output["background_agent_required"] is True
+        assert output["pending_sync_count"] == 1
+        assert output["pending_hooks"][0]["name"] == "lark_sync"
+        assert output["pending_background_agents"][0]["name"] == "sibyl-experiment-supervisor"
+        assert output["resume_action"]["experiment_monitor"]["background_agent"]["name"] == "sibyl-experiment-supervisor"
+        assert output["recovery"]["source"] == "cli_resume"
+        assert output["recovery"]["background_agent_required"] is True
+        assert recovery_state["pending_sync_count"] == 1
+        assert recovery_state["source"] == "cli_resume"
+        assert breadcrumb["action_type"] == "experiment_wait"
+        assert breadcrumb["stage"] == "experiment_cycle"
+
+    def test_cli_status_exposes_persisted_recovery_state(self, make_orchestrator, capsys):
+        from sibyl.experiment_recovery import (
+            ExperimentState, register_task, save_experiment_state,
+        )
+        from sibyl.gpu_scheduler import register_running_tasks
+        from sibyl.orchestrate import cli_status
+
+        o = make_orchestrator(stage="experiment_cycle", lark_enabled=True, gpu_poll_enabled=False)
+        o.ws.write_file(
+            "plan/task_plan.json",
+            json.dumps({"tasks": [{"id": "task_a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 30}]}),
+        )
+        state = ExperimentState()
+        register_task(state, "task_a", gpu_ids=[0])
+        save_experiment_state(o.ws.active_root, state)
+        register_running_tasks(o.ws.active_root, {"task_a": [0]})
+        cli_next(str(o.ws.root))
+        capsys.readouterr()
+
+        result = cli_status(str(o.ws.root))
+        output = json.loads(capsys.readouterr().out)
+
+        assert result == output
+        assert output["recovery"]["source"] == "cli_next"
+        assert output["recovery"]["resume_action_type"] == "experiment_wait"
+        assert output["recovery"]["background_agent_required"] is True
 
     def test_cli_status_does_not_materialize_runtime_scaffold(self, tmp_path, capsys):
         proj = tmp_path / "bare-status"
@@ -1101,8 +1175,9 @@ class TestCLI:
     def test_cli_init(self, tmp_path, monkeypatch, capsys):
         monkeypatch.chdir(tmp_path)
         from sibyl.orchestrate import cli_init
-        cli_init("Test Topic", "test-cli-proj")
+        result = cli_init("Test Topic", "test-cli-proj")
         output = json.loads(capsys.readouterr().out)
+        assert result == output
         assert output["project_name"] == "test-cli-proj"
         assert "workspace_path" in output
 
@@ -1112,8 +1187,9 @@ class TestCLI:
         ws.update_stage("reflection")
         ws.update_iteration(3)
 
-        cli_next(str(ws.root))
-        capsys.readouterr()
+        action = cli_next(str(ws.root))
+        output = json.loads(capsys.readouterr().out)
+        assert action == output
 
         events = (ws.root / "logs" / "events.jsonl").read_text(encoding="utf-8").splitlines()
         assert len(events) == 1
@@ -1121,13 +1197,61 @@ class TestCLI:
         assert event["event"] == "stage_start"
         assert event["iteration"] == 3
 
+    def test_load_experiment_plan_reads_task_plan_from_active_workspace(self, tmp_path):
+        ws = Workspace(tmp_path, "compat-plan-proj", iteration_dirs=True)
+        ws.write_file("plan/task_plan.json", json.dumps({
+            "tasks": [{"id": "task_a", "depends_on": []}],
+        }))
+
+        from sibyl.orchestrate import _load_experiment_plan
+
+        plan = _load_experiment_plan(str(ws.root))
+        assert plan["tasks"][0]["id"] == "task_a"
+
+    def test_load_experiment_plan_falls_back_to_legacy_experiment_plan_path(self, tmp_path):
+        ws = Workspace(tmp_path, "compat-legacy-plan")
+        legacy_plan = ws.active_path("exp/experiment_plan.json")
+        legacy_plan.parent.mkdir(parents=True, exist_ok=True)
+        legacy_plan.write_text(
+            json.dumps({"tasks": [{"id": "legacy_task", "depends_on": []}]}),
+            encoding="utf-8",
+        )
+
+        from sibyl.orchestrate import _load_experiment_plan
+
+        plan = _load_experiment_plan(str(ws.root))
+        assert plan["tasks"][0]["id"] == "legacy_task"
+
+    def test_get_next_batch_wrapper_uses_active_workspace(self, tmp_path):
+        ws = Workspace(tmp_path, "compat-batch-proj", iteration_dirs=True)
+        ws.write_file("plan/task_plan.json", json.dumps({
+            "tasks": [
+                {"id": "task_a", "depends_on": []},
+                {"id": "task_b", "depends_on": []},
+            ],
+        }))
+
+        from sibyl.orchestrate import get_next_batch
+
+        batch = get_next_batch(str(ws.root), [2, 3])
+        assert batch is not None
+        assert batch[0]["task_ids"] == ["task_a"]
+        assert batch[0]["gpu_ids"] == [2]
+
     def test_cli_init_spec(self, tmp_path, monkeypatch, capsys):
         monkeypatch.chdir(tmp_path)
+        (tmp_path / "config.yaml").write_text(
+            f"workspaces_dir: {tmp_path / 'workspaces'}\niteration_dirs: true\n",
+            encoding="utf-8",
+        )
         from sibyl.orchestrate import cli_init_spec
         cli_init_spec("my-spec-proj")
         output = json.loads(capsys.readouterr().out)
         assert output["project_name"] == "my-spec-proj"
         assert Path(output["spec_path"]).exists()
+        ws_root = Path(output["workspace_path"])
+        assert (ws_root / "current").is_symlink()
+        assert json.loads((ws_root / "status.json").read_text(encoding="utf-8"))["iteration_dirs"] is True
 
     def test_cli_init_from_existing_spec_reuses_workspace_and_project_config(
         self, tmp_path, monkeypatch, capsys
@@ -1183,6 +1307,40 @@ class TestCLI:
         project_cfg = (ws_root / "config.yaml").read_text(encoding="utf-8")
         assert "ssh_server: persist-box" in project_cfg
         assert "remote_base: /srv/research" in project_cfg
+
+    def test_cli_status_auto_migrates_flat_workspace_when_project_config_prefers_iteration_dirs(
+        self, tmp_path, capsys
+    ):
+        project = tmp_path / "status-migrate-proj"
+        (project / "idea").mkdir(parents=True)
+        (project / "plan").mkdir(parents=True)
+        (project / "status.json").write_text(json.dumps({
+            "stage": "planning",
+            "started_at": 1000.0,
+            "updated_at": 1100.0,
+            "iteration": 0,
+            "errors": [],
+            "paused": False,
+            "paused_at": None,
+            "stop_requested": False,
+            "stop_requested_at": None,
+            "iteration_dirs": False,
+            "stage_started_at": 1050.0,
+        }), encoding="utf-8")
+        (project / "config.yaml").write_text("iteration_dirs: true\n", encoding="utf-8")
+        (project / "topic.txt").write_text("Topic\n", encoding="utf-8")
+        (project / "idea" / "proposal.md").write_text("# Proposal\n", encoding="utf-8")
+        (project / "plan" / "methodology.md").write_text("# Method\n", encoding="utf-8")
+        from sibyl.orchestrate import cli_status
+
+        cli_status(str(project))
+        output = json.loads(capsys.readouterr().out)
+
+        assert output["stage"] == "planning"
+        assert json.loads((project / "status.json").read_text(encoding="utf-8"))["iteration_dirs"] is True
+        assert (project / "current").is_symlink()
+        assert (project / "current" / "idea" / "proposal.md").exists()
+        assert (project / "current" / "plan" / "methodology.md").exists()
 
     def test_orchestrator_normalizes_current_symlink_to_project_root(self, tmp_path):
         ws = Workspace(tmp_path, "iter-proj", iteration_dirs=True)
@@ -1437,6 +1595,23 @@ class TestPromptLoading:
         assert "## Locale Contract" in prompt
         assert "## Workspace Contract" in prompt
         assert "## Role Protocol" in prompt
+        assert "自主触发 Orchestra 技能" in prompt
+        assert "不要等用户提醒" in prompt
+
+    def test_render_skill_prompt_includes_experimenter_autonomous_skill_rules(self, tmp_path):
+        ws = Workspace(tmp_path, "compiled-exp-prompt-proj")
+        prompt = render_skill_prompt("experimenter", workspace_path=ws.root)
+        assert "自主触发 Orchestra 技能" in prompt
+        assert "vllm" in prompt
+        assert "deepspeed" in prompt
+        assert "不要等用户提醒" in prompt
+
+    def test_render_skill_prompt_includes_supervisor_autonomous_skill_rules(self, tmp_path):
+        ws = Workspace(tmp_path, "compiled-supervisor-prompt-proj")
+        prompt = render_skill_prompt("experiment_supervisor", workspace_path=ws.root)
+        assert "自主触发 Orchestra 技能" in prompt
+        assert "experiment-supervisor-notify-main" in prompt
+        assert "不要等主系统或用户提醒" in prompt
 
     def test_render_skill_prompt_appends_project_memory(self, tmp_path, monkeypatch):
         ws = Workspace(tmp_path, "compiled-memory-proj")
@@ -1504,6 +1679,8 @@ class TestPromptLoading:
         assert "# Sibyl Control-Plane Loop" in prompt
         assert "cli_next('workspaces/demo')" in prompt
         assert "sync_requested: true" in prompt
+        assert "wake_cmd" in prompt
+        assert "requires_main_system=true" in prompt
 
     def test_render_control_plane_prompt_compiles_ralph(self):
         prompt = render_control_plane_prompt(
@@ -1560,11 +1737,41 @@ class TestMigration:
         assert (project / "spec.md").exists()
         assert (project / ".git").exists()
         assert (project / ".sibyl" / "project" / "MEMORY.md").exists()
+        assert (project / "current").is_symlink()
         status = json.loads((project / "status.json").read_text(encoding="utf-8"))
         assert status["iteration"] == 1
+        assert status["iteration_dirs"] is True
         assert status["paused"] is False
         assert status["stop_requested"] is False
         assert status["stage_started_at"] == 1100.0
+
+    def test_migrate_workspace_moves_flat_iteration_scoped_dirs_into_current(self, tmp_path, monkeypatch):
+        project = tmp_path / "iter-migrate-proj"
+        (project / "idea").mkdir(parents=True)
+        (project / "exp" / "results").mkdir(parents=True)
+        (project / "status.json").write_text(json.dumps({
+            "stage": "pilot_experiments",
+            "started_at": 1000.0,
+            "updated_at": 1100.0,
+            "iteration": 0,
+            "errors": [],
+            "iteration_dirs": False,
+        }), encoding="utf-8")
+        (project / "config.yaml").write_text("iteration_dirs: true\n", encoding="utf-8")
+        (project / "topic.txt").write_text("Topic\n", encoding="utf-8")
+        (project / "idea" / "proposal.md").write_text("# Proposal\n", encoding="utf-8")
+        (project / "exp" / "results" / "pilot_summary.md").write_text("# Pilot\n", encoding="utf-8")
+
+        monkeypatch.chdir(Path(__file__).resolve().parents[1])
+        result = migrate_workspace(project)
+
+        assert (project / "current").is_symlink()
+        assert not (project / "idea").exists()
+        assert not (project / "exp").exists()
+        assert (project / "current" / "idea" / "proposal.md").exists()
+        assert (project / "current" / "exp" / "results" / "pilot_summary.md").exists()
+        assert any("Moved idea/" in change for change in result["changes"])
+        assert any("Moved exp/" in change for change in result["changes"])
 
     def test_migrate_workspace_flattens_legacy_nested_workspace_dir(self, tmp_path, monkeypatch):
         project = tmp_path / "nested-proj"
@@ -1843,6 +2050,10 @@ class TestExperimentParallel:
         assert monitor["marker_file"] == project_marker_file(o.ws.root, "exp_monitor")
         assert set(monitor["task_ids"]) == {"task_1a", "task_1b"}
         assert monitor["timeout_minutes"] >= 30  # at least 30 min
+        assert "experiment-supervisor-drain-wake" in monitor["wake_cmd"]
+        assert monitor["wake_check_interval_sec"] == 90
+        assert monitor["background_agent"]["name"] == "sibyl-experiment-supervisor"
+        assert shlex.quote(str(o.ws.active_root)) in monitor["background_agent"]["args"]
 
     def test_incomplete_task_plan_redirects_to_planner(self, make_orchestrator):
         """Tasks missing gpu_count/estimated_minutes should trigger planner fix."""
@@ -1863,6 +2074,8 @@ class TestExperimentParallel:
         o = make_orchestrator(stage="pilot_experiments", gpu_poll_enabled=False)
         action = o.get_next_action()
         assert action["estimated_minutes"] == 0
+        assert "experiment-supervisor-drain-wake" in action["experiment_monitor"]["wake_cmd"]
+        assert action["experiment_monitor"]["background_agent"]["name"] == "sibyl-experiment-supervisor"
 
 
 # ══════════════════════════════════════════════
@@ -2203,9 +2416,10 @@ class TestDynamicGpuDispatch:
             "a": {"gpu_ids": [0], "started_at": "2026-01-01"},
             "b": {"gpu_ids": [1], "started_at": "2026-01-01"},
         })
-        cli_dispatch_tasks(str(o.ws.root))
+        payload = cli_dispatch_tasks(str(o.ws.root))
         captured = capsys.readouterr()
         result = json.loads(captured.out)
+        assert payload == result
         assert len(result["dispatch"]) == 1
         assert result["dispatch"][0]["task_ids"] == ["c"]
         assert len(result["skills"]) == 1
@@ -2471,9 +2685,10 @@ class TestExperimentStatusDisplay:
             },
             "timings": {},
         }))
-        cli_experiment_status(str(o.ws.root))
+        payload = cli_experiment_status(str(o.ws.root))
         captured = capsys.readouterr()
         result = json.loads(captured.out)
+        assert payload == result
         assert result["completed_count"] == 1
         assert result["running_count"] == 1
         assert result["pending_count"] == 1
@@ -2578,6 +2793,102 @@ class TestExperimentStatusDisplay:
         assert result["running_count"] == 0
         assert result["pending_count"] == 0
 
+    def test_record_gpu_poll_updates_project_scoped_marker(self, make_orchestrator, capsys):
+        o = make_orchestrator(stage="pilot_experiments", gpu_poll_enabled=True, max_gpus=4)
+        cli_record_gpu_poll(
+            str(o.ws.root),
+            "0, 500, 24576\n1, 18000, 24576\n2, 100, 24576\n",
+        )
+        result = json.loads(capsys.readouterr().out)
+        assert result["free_gpus"] == [0, 2]
+        marker = json.loads(Path(project_marker_file(o.ws.root, "gpu_free")).read_text(encoding="utf-8"))
+        assert marker["snapshot"][0]["gpu_id"] == 0
+        assert marker["source"] == "experiment_supervisor"
+
+    def test_experiment_supervisor_claim_heartbeat_release(self, make_orchestrator, capsys):
+        o = make_orchestrator(stage="pilot_experiments", gpu_poll_enabled=False)
+        owner = "exp-supervisor-test"
+
+        cli_experiment_supervisor_claim(str(o.ws.root), owner, stale_after_sec=900)
+        claimed = json.loads(capsys.readouterr().out)
+        assert claimed["should_start"] is True
+
+        cli_experiment_supervisor_heartbeat(
+            str(o.ws.root),
+            owner,
+            summary="monitoring",
+            actions_json='["dispatch"]',
+            recommendations_json='["keep GPUs busy"]',
+        )
+        heartbeat = json.loads(capsys.readouterr().out)
+        assert heartbeat["status"] == "ok"
+
+        cli_experiment_supervisor_snapshot(str(o.ws.root))
+        snapshot = json.loads(capsys.readouterr().out)
+        assert snapshot["supervisor_state"]["owner_id"] == owner
+        assert "drift" in snapshot
+
+        cli_experiment_supervisor_release(str(o.ws.root), owner, final_status="idle", summary="done")
+        released = json.loads(capsys.readouterr().out)
+        assert released["status"] == "released"
+
+    def test_experiment_supervisor_notify_and_drain_wake(self, make_orchestrator, capsys):
+        o = make_orchestrator(stage="experiment_cycle", gpu_poll_enabled=False)
+        owner = "exp-supervisor-test"
+
+        cli_experiment_supervisor_claim(str(o.ws.root), owner, stale_after_sec=900)
+        _ = json.loads(capsys.readouterr().out)
+
+        cli_experiment_supervisor_notify_main(
+            str(o.ws.root),
+            owner,
+            kind="needs_main_system",
+            summary="task_a stuck after retries",
+            details_json='{"task_id":"task_a","attempts":3}',
+            actions_json='["checked progress","requeued once"]',
+            recommendations_json='["planner should split task"]',
+            urgency="critical",
+            requires_main_system=True,
+        )
+        queued = json.loads(capsys.readouterr().out)
+        assert queued["wake_requested"] is True
+        assert queued["queue_depth"] == 1
+
+        cli_experiment_supervisor_snapshot(str(o.ws.root))
+        snapshot = json.loads(capsys.readouterr().out)
+        assert snapshot["main_wake_queue_depth"] == 1
+        assert snapshot["drift"]["pending_main_wake"] is True
+
+        cli_experiment_supervisor_drain_wake(str(o.ws.root))
+        drained = json.loads(capsys.readouterr().out)
+        assert drained["wake_requested"] is True
+        assert drained["requires_main_system"] is True
+        assert drained["events"][0]["kind"] == "needs_main_system"
+        assert drained["events"][0]["details"]["task_id"] == "task_a"
+
+        cli_experiment_supervisor_drain_wake(str(o.ws.root))
+        drained_again = json.loads(capsys.readouterr().out)
+        assert drained_again["wake_requested"] is False
+        assert drained_again["event_count"] == 0
+
+    def test_requeue_experiment_task_clears_running_and_keeps_retryable(self, make_orchestrator, capsys):
+        from sibyl.experiment_recovery import ExperimentState, register_task, save_experiment_state
+        from sibyl.gpu_scheduler import register_running_tasks
+
+        o = make_orchestrator(stage="experiment_cycle", gpu_poll_enabled=False)
+        state = ExperimentState()
+        register_task(state, "task_a", gpu_ids=[0])
+        save_experiment_state(o.ws.active_root, state)
+        register_running_tasks(o.ws.active_root, {"task_a": [0]})
+
+        cli_requeue_experiment_task(str(o.ws.root), "task_a", reason="stalled")
+        result = json.loads(capsys.readouterr().out)
+        assert result["status"] == "ok"
+
+        progress = json.loads((o.ws.active_root / "exp" / "gpu_progress.json").read_text(encoding="utf-8"))
+        assert "task_a" not in progress["running"]
+        assert "task_a" in progress["failed"]
+
 
 class TestExperimentStateIntegration:
     def test_experiment_batch_registers_in_experiment_state(self, make_orchestrator):
@@ -2665,6 +2976,9 @@ class TestExperimentWaitAction:
         assert action["experiment_monitor"]["poll_interval_sec"] > 0
         assert "check_cmd" in action["experiment_monitor"]
         assert "status_cmd" in action["experiment_monitor"]
+        assert "wake_cmd" in action["experiment_monitor"]
+        assert action["experiment_monitor"]["wake_check_interval_sec"] == 90
+        assert action["experiment_monitor"]["background_agent"]["name"] == "sibyl-experiment-supervisor"
 
     def test_experiment_wait_adaptive_interval_short(self, make_orchestrator):
         """Short remaining time → 2min poll interval."""

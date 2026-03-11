@@ -6,11 +6,13 @@ for the main Claude Code session to execute. It does NOT call claude-agent-sdk.
 Usage (called by Skill via Bash):
     python -c "from sibyl.orchestrate import FarsOrchestrator; ..."
 """
+import json
 from functools import partial, update_wrapper
 from pathlib import Path
 
 from sibyl.config import Config
 from sibyl.event_logger import EventLogger
+from sibyl import gpu_scheduler as _gpu_scheduler
 from sibyl.workspace import Workspace
 from sibyl.orchestration import cli_core as _cli_core
 from sibyl.orchestration import checkpointing as _checkpointing
@@ -40,6 +42,7 @@ from sibyl.orchestration import writing_artifacts as _writing_artifacts
 from sibyl.orchestration import workspace_paths as _workspace_paths
 from sibyl.orchestration.workspace_paths import (
     load_workspace_iteration_dirs,
+    resolve_active_workspace_path,
     resolve_workspace_root,
 )
 
@@ -65,6 +68,56 @@ def _bind_cli(func, /, *args, **kwargs):
     return update_wrapper(bound, func)
 
 
+def _experiment_plan_candidates(workspace_path: str | Path) -> list[Path]:
+    """Return compatibility search paths for experiment/task plans."""
+    workspace_root = resolve_workspace_root(workspace_path)
+    active_root = resolve_active_workspace_path(workspace_path)
+    candidates = [
+        active_root / "plan" / "task_plan.json",
+        workspace_root / "plan" / "task_plan.json",
+        active_root / "exp" / "experiment_plan.json",
+        workspace_root / "exp" / "experiment_plan.json",
+    ]
+    deduped: list[Path] = []
+    seen: set[Path] = set()
+    for path in candidates:
+        if path not in seen:
+            deduped.append(path)
+            seen.add(path)
+    return deduped
+
+
+def _load_experiment_plan(workspace_path: str | Path) -> dict:
+    """Backward-compatible loader for the structured experiment plan."""
+    for plan_path in _experiment_plan_candidates(workspace_path):
+        if not plan_path.exists():
+            continue
+        try:
+            payload = json.loads(plan_path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            continue
+        if isinstance(payload, dict):
+            return payload
+    searched = ", ".join(str(path) for path in _experiment_plan_candidates(workspace_path))
+    raise FileNotFoundError(f"Experiment plan not found. Searched: {searched}")
+
+
+def get_next_batch(
+    workspace_path: str | Path,
+    gpu_ids: list[int],
+    mode: str = "PILOT",
+    gpus_per_task: int = 1,
+) -> list[dict] | None:
+    """Backward-compatible public wrapper around the GPU batch scheduler."""
+    active_root = resolve_active_workspace_path(workspace_path)
+    return _gpu_scheduler.get_next_batch(
+        active_root,
+        gpu_ids,
+        mode=mode,
+        gpus_per_task=gpus_per_task,
+    )
+
+
 class FarsOrchestrator:
     """State-machine orchestrator for Sibyl research pipeline.
 
@@ -80,6 +133,10 @@ class FarsOrchestrator:
             self.config = config
         else:
             self.config = load_effective_config(ws_path)
+        _migration_cli.ensure_workspace_iteration_dirs(
+            ws_path,
+            preferred_enabled=self.config.iteration_dirs,
+        )
         iteration_dirs = load_workspace_iteration_dirs(ws_path, self.config.iteration_dirs)
         self.ws = Workspace(
             ws_path.parent,
@@ -265,11 +322,12 @@ class FarsOrchestrator:
             action_cls=Action,
         )
 
-    def _build_experiment_monitor(self, task_ids: list[str],
+    def _build_experiment_monitor(self, mode: str, task_ids: list[str],
                                     estimated_minutes: int) -> dict:
         """Build experiment monitor config for background progress tracking."""
         return _experiment_actions.build_experiment_monitor(
             self,
+            mode,
             task_ids,
             estimated_minutes,
         )
@@ -436,6 +494,14 @@ cli_checkpoint = _bind_cli(
     checkpoint_dirs=CHECKPOINT_DIRS,
 )
 cli_experiment_status = _runtime_cli.cli_experiment_status
+cli_experiment_supervisor_claim = _runtime_cli.cli_experiment_supervisor_claim
+cli_experiment_supervisor_heartbeat = _runtime_cli.cli_experiment_supervisor_heartbeat
+cli_experiment_supervisor_notify_main = _runtime_cli.cli_experiment_supervisor_notify_main
+cli_experiment_supervisor_release = _runtime_cli.cli_experiment_supervisor_release
+cli_experiment_supervisor_drain_wake = _runtime_cli.cli_experiment_supervisor_drain_wake
+cli_experiment_supervisor_snapshot = _runtime_cli.cli_experiment_supervisor_snapshot
+cli_record_gpu_poll = _runtime_cli.cli_record_gpu_poll
+cli_requeue_experiment_task = _runtime_cli.cli_requeue_experiment_task
 cli_sentinel_session = _cli_core.cli_sentinel_session
 cli_sentinel_config = _cli_core.cli_sentinel_config
 cli_dispatch_tasks = _bind_cli(

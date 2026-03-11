@@ -14,6 +14,7 @@ from sibyl.event_logger import EventLogger
 from sibyl.workspace import Workspace, workspace_status_from_data
 
 from .dashboard_data import collect_dashboard_data
+from .config_helpers import load_effective_config
 from .writing_artifacts import extract_section_figure_artifacts
 from .workspace_paths import (
     resolve_active_workspace_path,
@@ -23,6 +24,7 @@ from .workspace_paths import (
 
 
 _LOOP_ACTION_TYPES = {"experiment_wait", "gpu_poll"}
+_RECOVERY_STATE_REL_PATH = ".sibyl/recovery_state.json"
 
 
 def _read_json(path: Path) -> dict:
@@ -40,6 +42,41 @@ def _write_json_atomic(path: Path, payload: dict) -> None:
     tmp = path.with_suffix(f"{path.suffix}.tmp")
     tmp.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(path)
+
+
+def _count_jsonl_entries(path: Path) -> int:
+    if not path.exists():
+        return 0
+    try:
+        return sum(1 for line in path.read_text(encoding="utf-8").splitlines() if line.strip())
+    except OSError:
+        return 0
+
+
+def _recovery_state_path(workspace_path: str | Path) -> Path:
+    workspace_root = resolve_workspace_root(workspace_path)
+    return workspace_root / _RECOVERY_STATE_REL_PATH
+
+
+def _load_recovery_state(workspace_path: str | Path) -> dict[str, Any]:
+    return _read_json(_recovery_state_path(workspace_path))
+
+
+def _persist_recovery_state(
+    workspace_path: str | Path,
+    payload: dict[str, Any],
+    *,
+    source: str,
+) -> dict[str, Any]:
+    workspace_root = resolve_workspace_root(workspace_path)
+    state_payload = {
+        **payload,
+        "source": source,
+        "saved_at": time.time(),
+        "path": str(_recovery_state_path(workspace_root)),
+    }
+    _write_json_atomic(_recovery_state_path(workspace_root), state_payload)
+    return state_payload
 
 
 def _sentinel_registry_path() -> Path:
@@ -103,6 +140,7 @@ def _load_workspace_sentinel_state(workspace_root: Path) -> dict:
         not status.stop_requested and (has_running or status.stage not in {"", "init", "done"})
     )
     ralph_prompt_path = str((workspace_root / ".claude" / "ralph-prompt.txt").resolve())
+    recovery_state = _load_recovery_state(workspace_root)
     return {
         "workspace_path": str(workspace_root),
         "active_workspace_path": str(active_root),
@@ -121,6 +159,7 @@ def _load_workspace_sentinel_state(workspace_root: Path) -> dict:
         "ralph_prompt_path": session_data.get("ralph_prompt_path", ralph_prompt_path),
         "ownership_conflict": bool(session_data.get("ownership_conflict", False)),
         "conflicts": list(session_data.get("conflicts", [])),
+        "recovery": recovery_state,
     }
 
 
@@ -222,6 +261,62 @@ def write_breadcrumb(
     _write_json_atomic(bc_path, payload)
 
 
+def _build_resume_recovery_payload(
+    orchestrator: Any,
+    workspace_path: str,
+    *,
+    resume_action: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    workspace_root = resolve_workspace_root(workspace_path)
+    breadcrumb = _read_json(workspace_root / "breadcrumb.json")
+    if resume_action is None:
+        resume_action = orchestrator.get_next_action()
+    experiment_monitor = resume_action.get("experiment_monitor", {})
+    if not isinstance(experiment_monitor, dict):
+        experiment_monitor = {}
+    background_agent = experiment_monitor.get("background_agent", {})
+    if not isinstance(background_agent, dict):
+        background_agent = {}
+
+    pending_sync_path = workspace_root / "lark_sync" / "pending_sync.jsonl"
+    pending_sync_count = _count_jsonl_entries(pending_sync_path)
+
+    pending_hooks: list[dict[str, Any]] = []
+    if pending_sync_count > 0:
+        pending_hooks.append({
+            "name": "lark_sync",
+            "pending_count": pending_sync_count,
+            "path": str(pending_sync_path),
+            "resume_hint": (
+                "restart the sibyl-lark-sync background agent before continuing the loop"
+            ),
+        })
+
+    pending_background_agents: list[dict[str, Any]] = []
+    if background_agent.get("name"):
+        pending_background_agents.append({
+            "name": background_agent.get("name", ""),
+            "args": background_agent.get("args", ""),
+            "action_type": resume_action.get("action_type", ""),
+            "stage": resume_action.get("stage", ""),
+            "resume_hint": (
+                "restart this background agent with run_in_background=true before "
+                "resuming the main loop"
+            ),
+        })
+
+    return {
+        "resume_action_type": resume_action.get("action_type", ""),
+        "resume_action": resume_action,
+        "background_agent_required": bool(pending_background_agents),
+        "pending_sync_count": pending_sync_count,
+        "pending_hooks": pending_hooks,
+        "pending_background_agents": pending_background_agents,
+        "breadcrumb": breadcrumb,
+        "recovery_state_path": str(_recovery_state_path(workspace_root)),
+    }
+
+
 def cli_init(
     topic: str,
     project_name: str | None = None,
@@ -229,7 +324,7 @@ def cli_init(
     *,
     orchestrator_cls: type[Any],
     event_logger_cls: type[Any],
-) -> None:
+) -> dict[str, Any]:
     """CLI: Initialize a project."""
     from .project_cli import _build_post_init_guide
     from .config_helpers import load_effective_config
@@ -251,6 +346,7 @@ def cli_init(
         )
     except Exception:
         pass
+    return result
 
 
 def cli_next(
@@ -258,10 +354,19 @@ def cli_next(
     *,
     orchestrator_cls: type[Any],
     event_logger_cls: type[Any],
-) -> None:
+) -> dict[str, Any]:
     """CLI: Get next action."""
     orchestrator = orchestrator_cls(workspace_path)
     action = orchestrator.get_next_action()
+    recovery_state = _persist_recovery_state(
+        workspace_path,
+        _build_resume_recovery_payload(
+            orchestrator,
+            workspace_path,
+            resume_action=action,
+        ),
+        source="cli_next",
+    )
     print(json.dumps(action, indent=2))
     try:
         write_sentinel_heartbeat(workspace_path, action.get("stage", ""), "cli_next")
@@ -274,8 +379,10 @@ def cli_next(
                 action_type=action_type,
                 description=action.get("description", "")[:200],
             )
+        _ = recovery_state
     except Exception:
         pass
+    return action
 
 
 def cli_record(
@@ -286,7 +393,7 @@ def cli_record(
     *,
     orchestrator_cls: type[Any],
     event_logger_cls: type[Any],
-) -> None:
+) -> dict[str, Any]:
     """CLI: Record stage result."""
     orchestrator = orchestrator_cls(workspace_path)
     prev_status = orchestrator.ws.get_status()
@@ -298,6 +405,11 @@ def cli_record(
     no_sync_trigger = {"init", "quality_gate", "done", "lark_sync"}
     if orchestrator.config.lark_enabled and stage not in no_sync_trigger:
         output["sync_requested"] = True
+    recovery_state = _persist_recovery_state(
+        workspace_path,
+        _build_resume_recovery_payload(orchestrator, workspace_path),
+        source="cli_record",
+    )
     print(json.dumps(output))
     try:
         write_sentinel_heartbeat(workspace_path, stage, "cli_record")
@@ -310,8 +422,10 @@ def cli_record(
             score=score,
             next_stage=new_status.stage,
         )
+        _ = recovery_state
     except Exception:
         pass
+    return output
 
 
 def cli_pause(
@@ -320,13 +434,14 @@ def cli_pause(
     *,
     orchestrator_cls: type[Any],
     event_logger_cls: type[Any],
-) -> None:
+) -> dict[str, str]:
     """CLI: Write a legacy pause marker or manual stop marker."""
     orchestrator = orchestrator_cls(workspace_path)
     orchestrator.ws.pause(reason)
     status = orchestrator.ws.get_status()
     status_value = "stopped" if reason == "user_stop" else "paused"
-    print(json.dumps({"status": status_value, "stage": status.stage}))
+    payload = {"status": status_value, "stage": status.stage}
+    print(json.dumps(payload))
     try:
         event_logger_cls(Path(workspace_path)).pause(
             reason=reason,
@@ -335,6 +450,7 @@ def cli_pause(
         )
     except Exception:
         pass
+    return payload
 
 
 def cli_resume(
@@ -342,28 +458,59 @@ def cli_resume(
     *,
     orchestrator_cls: type[Any],
     event_logger_cls: type[Any],
-) -> None:
+) -> dict[str, Any]:
     """CLI: Clear stop/pause markers and resume a project."""
     orchestrator = orchestrator_cls(workspace_path)
     orchestrator.ws.resume()
     stop_file = resolve_workspace_root(workspace_path) / "sentinel_stop.json"
     stop_file.unlink(missing_ok=True)
     status = orchestrator.ws.get_status()
-    print(json.dumps({"status": "resumed", "stage": status.stage}))
+    recovery = _build_resume_recovery_payload(orchestrator, workspace_path)
+    payload = {
+        "status": "resumed",
+        "stage": status.stage,
+        "iteration": status.iteration,
+        **recovery,
+    }
+    persisted_recovery = _persist_recovery_state(
+        workspace_path,
+        recovery,
+        source="cli_resume",
+    )
+    payload["recovery"] = persisted_recovery
+    print(json.dumps(payload, indent=2, ensure_ascii=False))
     try:
+        write_sentinel_heartbeat(workspace_path, status.stage, "cli_resume")
+        if isinstance(payload.get("resume_action"), dict):
+            write_breadcrumb(workspace_path, action_dict=payload["resume_action"])
         event_logger_cls(Path(workspace_path)).resume(
             stage=status.stage,
             iteration=status.iteration,
+            action_type=payload.get("resume_action_type", ""),
+            pending_sync_count=payload.get("pending_sync_count", 0),
+            background_agent_required=payload.get("background_agent_required", False),
         )
     except Exception:
         pass
+    return payload
 
 
 def cli_status(
     workspace_path: str,
-) -> None:
+) -> dict[str, Any]:
     """CLI: Get project status."""
     workspace_root = resolve_workspace_root(workspace_path)
+    from .migration_cli import ensure_workspace_iteration_dirs
+
+    preferred_iteration_dirs = (
+        load_effective_config(workspace_path=workspace_root).iteration_dirs
+        if (workspace_root / "config.yaml").exists()
+        else False
+    )
+    ensure_workspace_iteration_dirs(
+        workspace_root,
+        preferred_enabled=preferred_iteration_dirs,
+    )
     ws = Workspace.open_existing(workspace_root.parent, workspace_root.name)
     status = ws.get_project_metadata()
     status["topic"] = ws.read_file("topic.txt") or ""
@@ -373,7 +520,9 @@ def cli_status(
             status["lark_sync_status"] = json.loads(sync_status_path.read_text())
         except (json.JSONDecodeError, OSError):
             status["lark_sync_status"] = {"error": "corrupted sync_status.json"}
+    status["recovery"] = _load_recovery_state(workspace_root)
     print(json.dumps(status, indent=2))
+    return status
 
 
 def cli_checkpoint(
@@ -382,15 +531,16 @@ def cli_checkpoint(
     step_id: str,
     *,
     checkpoint_dirs: dict[str, str],
-) -> None:
+) -> dict[str, Any]:
     """CLI: Mark a checkpoint sub-step as completed."""
     checkpoint_dir = checkpoint_dirs.get(stage)
     if checkpoint_dir is None:
-        print(json.dumps({
+        payload = {
             "status": "error",
             "message": f"No checkpoint support for stage '{stage}'",
-        }))
-        return
+        }
+        print(json.dumps(payload))
+        return payload
 
     ws_path = Path(workspace_path)
     ws = Workspace(ws_path.parent, ws_path.name)
@@ -431,13 +581,14 @@ def cli_checkpoint(
         )
     except Exception:
         pass
+    return payload
 
 
 def cli_sentinel_session(
     workspace_path: str,
     session_id: str,
     tmux_pane: str = "",
-) -> None:
+) -> dict[str, Any]:
     """CLI: Save Claude Code session ownership for Sentinel and Ralph loop isolation."""
     workspace_root = resolve_workspace_root(workspace_path)
     payload = {
@@ -477,7 +628,7 @@ def cli_sentinel_session(
         _save_sentinel_registry_unlocked(registry)
 
     _write_json_atomic(workspace_root / "sentinel_session.json", payload)
-    print(json.dumps({
+    output = {
         "status": "conflict" if payload["ownership_conflict"] else "ok",
         "workspace_path": str(workspace_root),
         "project_name": workspace_root.name,
@@ -486,12 +637,14 @@ def cli_sentinel_session(
         "ownership_conflict": payload["ownership_conflict"],
         "conflicts": payload["conflicts"],
         "ralph_prompt_path": payload["ralph_prompt_path"],
-    }, indent=2))
+    }
+    print(json.dumps(output, indent=2))
+    return output
 
 
 def cli_sentinel_config(
     workspace_path: str,
-) -> None:
+) -> dict[str, Any]:
     """CLI: Get Sentinel configuration for watchdog script."""
     workspace_root = resolve_workspace_root(workspace_path)
     state = _load_workspace_sentinel_state(workspace_root)
@@ -510,13 +663,14 @@ def cli_sentinel_config(
     state["ownership_conflict"] = bool(state["ownership_conflict"] or conflicts)
     state["watchdog_allowed"] = not state["ownership_conflict"]
     print(json.dumps(state, indent=2))
+    return state
 
 
 def cli_list_projects(
     workspaces_dir: str | None = None,
     *,
     workspace_cls: type[Any],
-) -> None:
+) -> list[dict[str, Any]]:
     """CLI: List all projects."""
     if workspaces_dir is None:
         from .config_helpers import load_effective_config
@@ -526,7 +680,7 @@ def cli_list_projects(
         ws_dir = Path(workspaces_dir)
     if not ws_dir.exists():
         print(json.dumps([]))
-        return
+        return []
 
     projects = []
     for child in sorted(ws_dir.iterdir()):
@@ -539,12 +693,14 @@ def cli_list_projects(
             except Exception:
                 continue
     print(json.dumps(projects, indent=2))
+    return projects
 
 
 def cli_dashboard_data(
     workspace_path: str,
     events_tail: int = 50,
-) -> None:
+) -> dict[str, Any]:
     """CLI: Aggregate all monitoring data for frontend dashboard."""
     payload = collect_dashboard_data(workspace_path, events_tail=events_tail)
     print(json.dumps(payload, indent=2, ensure_ascii=False, default=str))
+    return payload

@@ -24,9 +24,10 @@ fi
 PROJECT_NAME="$(basename "$TARGET_WORKSPACE")"
 ```
 
-1. 恢复项目：
+1. 恢复项目并记录恢复提示：
 ```bash
-cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_resume; cli_resume('$TARGET_WORKSPACE')"
+RESUME_JSON=$(cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_resume; cli_resume('$TARGET_WORKSPACE')")
+echo "$RESUME_JSON"
 ```
 
 2. 获取当前状态：
@@ -49,7 +50,17 @@ cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_status
    fi
    ```
 
-3. **生成 Ralph Loop prompt 并启动持续迭代**：
+3. **恢复中断前的后台 hook / agent，再启动 Ralph Loop**：
+
+   - 优先读取 `RESUME_JSON.recovery`；如果 shell 变量丢失，可重新运行 `cli_status` 并读取 `status.recovery`。
+   - 如果 `RESUME_JSON` 里的 `pending_sync_count > 0`，立刻用 Agent tool 以 `run_in_background=true`
+     启动 Skill `sibyl-lark-sync`，参数为 `TARGET_WORKSPACE`。不要等待完成。
+   - 如果 `RESUME_JSON.background_agent_required == true`，读取
+     `RESUME_JSON.resume_action.experiment_monitor.background_agent`，按其中的 `name` 和 `args`
+     原样用 Agent tool 以 `run_in_background=true` 重启后台 experiment supervisor。不要等待完成。
+   - 以上恢复动作只做一次；完成后继续进入 Ralph Loop。
+
+4. **生成 Ralph Loop prompt 并启动持续迭代**：
 
    ```bash
    cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_write_ralph_prompt; cli_write_ralph_prompt('$TARGET_WORKSPACE', '$PROJECT_NAME')"
@@ -63,7 +74,7 @@ cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_status
 
    如果 Ralph Loop 不可用（插件错误），则手动执行编排循环。
 
-4. **启动 Sentinel 看门狗**（在 tmux 的 sibling pane 中）：
+5. **启动 Sentinel 看门狗**（在 tmux 的 sibling pane 中）：
    ```bash
    if [ -n "${TMUX:-}" ] && [ -n "${CURRENT_PANE:-}" ]; then
      SIBYL_ROOT="$(cd /Users/cwan0785/sibyl-system && pwd)"

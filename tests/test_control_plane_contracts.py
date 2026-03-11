@@ -131,6 +131,19 @@ def test_plugin_commands_enforce_workspace_session_isolation():
         assert "独立的 Claude pane/session" in text, rel_path
 
 
+def test_resume_commands_restore_pending_background_work():
+    for rel_path in (
+        "plugin/commands/resume.md",
+        "plugin/commands/continue.md",
+    ):
+        text = (REPO_ROOT / rel_path).read_text(encoding="utf-8")
+        assert "RESUME_JSON" in text, rel_path
+        assert "pending_sync_count" in text, rel_path
+        assert "background_agent_required" in text, rel_path
+        assert "run_in_background=true" in text, rel_path
+        assert "recovery" in text, rel_path
+
+
 def test_no_stale_hardcoded_language_clauses():
     banned = (
         "All output in Chinese",
@@ -184,6 +197,7 @@ def test_background_lark_sync_docs_match_runtime_contract():
 
     assert "sync_requested: true" in loop_prompt
     assert "run_in_background" in loop_prompt
+    assert "pending hooks or background agents" in loop_prompt
     assert "lark_sync → quality_gate" not in loop_prompt
 
     assert "sync_requested" in debug_doc
@@ -222,7 +236,7 @@ def test_experiment_wait_docs_match_runtime_contract():
     """experiment_wait polling cadence should stay aligned across docs/runtime."""
     loop_prompt = render_control_plane_prompt("loop", workspace_path="WORKSPACE_PATH")
     required = {
-        "CLAUDE.md": ("<30min→2min", "30-120min→5min", ">120min→10min"),
+        "CLAUDE.md": ("<30min→2min", "30-120min→5min", ">120min→10min", "wake_cmd", "wake_check_interval_sec"),
     }
 
     for rel_path, snippets in required.items():
@@ -233,6 +247,10 @@ def test_experiment_wait_docs_match_runtime_contract():
     assert "remaining <=30min -> 2min" in loop_prompt
     assert "30-120min -> 5min" in loop_prompt
     assert ">120min -> 10min" in loop_prompt
+    assert "background_agent" in loop_prompt
+    assert "run_in_background=true" in loop_prompt
+    assert "wake_cmd" in loop_prompt
+    assert "requires_main_system=true" in loop_prompt
 
 
 def test_codex_integration_is_explicit_opt_in_everywhere():

@@ -14,6 +14,11 @@ def _remote_project_dir(orchestrator: Any) -> str:
     return f"{orchestrator.config.remote_base}/projects/{orchestrator.ws.name}"
 
 
+def _default_wake_check_interval_sec(poll_interval_sec: int) -> int:
+    """Return the default main-loop wake inbox cadence during experiment waits."""
+    return min(90, poll_interval_sec)
+
+
 def _sync_completed_tasks(exp_state: Any, task_ids: list[str], completed_set: set[str]) -> bool:
     changed = False
     for task_id in task_ids:
@@ -72,6 +77,36 @@ def build_experiment_skill_dict(
     }
 
 
+def _build_experiment_supervisor_skill(
+    orchestrator: Any,
+    mode: str,
+    ws: str,
+    *,
+    task_ids: list[str],
+    poll_interval_sec: int,
+) -> dict:
+    """Build the always-on background experiment supervisor skill."""
+    env_cmd = orchestrator.config.get_remote_env_cmd(orchestrator.ws.name)
+    task_ids_csv = ",".join(task_ids)
+    return {
+        "name": "sibyl-experiment-supervisor",
+        "args": pack_skill_args(
+            ws,
+            mode,
+            orchestrator.config.ssh_server,
+            orchestrator.config.remote_base,
+            env_cmd,
+            task_ids_csv,
+            poll_interval_sec,
+            orchestrator.config.gpu_poll_interval_sec,
+            orchestrator.config.gpu_free_threshold_mb,
+            orchestrator.config.max_gpus,
+            str(orchestrator.config.gpu_aggressive_mode).lower(),
+            orchestrator.config.gpu_aggressive_threshold_pct,
+        ),
+    }
+
+
 def build_experiment_skill_action(
     orchestrator: Any,
     mode: str,
@@ -89,6 +124,7 @@ def build_experiment_skill_action(
         gpu_ids,
     )
     is_server = orchestrator.config.experiment_mode in ("server_codex", "server_claude")
+    poll_sec = 120 if mode == "PILOT" else 300
     return action_cls(
         action_type="skill",
         skills=[skill],
@@ -100,6 +136,21 @@ def build_experiment_skill_action(
             )
         ),
         stage=stage,
+        experiment_monitor={
+            "poll_interval_sec": poll_sec,
+            "wake_check_interval_sec": _default_wake_check_interval_sec(poll_sec),
+            "wake_cmd": build_repo_python_cli_command(
+                "experiment-supervisor-drain-wake",
+                orchestrator.workspace_path,
+            ),
+            "background_agent": _build_experiment_supervisor_skill(
+                orchestrator,
+                mode,
+                ws,
+                task_ids=[],
+                poll_interval_sec=poll_sec,
+            ),
+        },
     )
 
 
@@ -288,6 +339,7 @@ def build_experiment_batch_action(
 
     monitor = build_experiment_monitor(
         orchestrator,
+        mode,
         all_task_ids,
         est_min,
     )
@@ -305,6 +357,7 @@ def build_experiment_batch_action(
 
 def build_experiment_monitor(
     orchestrator: Any,
+    mode: str,
     task_ids: list[str],
     estimated_minutes: int,
 ) -> dict:
@@ -316,6 +369,13 @@ def build_experiment_monitor(
     timeout_min = max(timeout_min, max(1, orchestrator.config.experiment_timeout // 60))
     poll_sec = 120 if estimated_minutes <= 15 else 300
     marker = project_marker_file(orchestrator.ws.root, "exp_monitor")
+    background_agent = _build_experiment_supervisor_skill(
+        orchestrator,
+        mode,
+        str(orchestrator.ws.active_root),
+        task_ids=task_ids,
+        poll_interval_sec=poll_sec,
+    )
 
     script = experiment_monitor_script(
         ssh_server=orchestrator.config.ssh_server,
@@ -337,14 +397,20 @@ def build_experiment_monitor(
         "task_ids": task_ids,
         "timeout_minutes": timeout_min,
         "poll_interval_sec": poll_sec,
+        "wake_check_interval_sec": _default_wake_check_interval_sec(poll_sec),
         "ssh_connection": orchestrator.config.ssh_server,
         "check_cmd": done_checks,
         "remote_dir": remote_dir,
         "dynamic_dispatch": True,
+        "wake_cmd": build_repo_python_cli_command(
+            "experiment-supervisor-drain-wake",
+            orchestrator.workspace_path,
+        ),
         "dispatch_cmd": build_repo_python_cli_command(
             "dispatch",
             orchestrator.workspace_path,
         ),
+        "background_agent": background_agent,
     }
 
 
@@ -507,9 +573,14 @@ def build_experiment_wait_action(
             "remote_dir": remote_dir,
             "task_ids": all_running,
             "poll_interval_sec": poll_interval_sec,
+            "wake_check_interval_sec": _default_wake_check_interval_sec(poll_interval_sec),
             "max_remaining_min": max_remaining_min,
             "task_status": task_status_lines,
             "dynamic_dispatch": True,
+            "wake_cmd": build_repo_python_cli_command(
+                "experiment-supervisor-drain-wake",
+                orchestrator.workspace_path,
+            ),
             "dispatch_cmd": build_repo_python_cli_command(
                 "dispatch",
                 orchestrator.workspace_path,
@@ -517,6 +588,13 @@ def build_experiment_wait_action(
             "status_cmd": build_repo_python_cli_command(
                 "experiment_status",
                 orchestrator.workspace_path,
+            ),
+            "background_agent": _build_experiment_supervisor_skill(
+                orchestrator,
+                "PILOT" if stage == "pilot_experiments" else "FULL",
+                str(orchestrator.ws.active_root),
+                task_ids=all_running,
+                poll_interval_sec=poll_interval_sec,
             ),
         },
     )

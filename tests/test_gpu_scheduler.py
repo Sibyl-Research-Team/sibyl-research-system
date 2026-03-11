@@ -7,7 +7,8 @@ from sibyl.gpu_scheduler import (
     topo_sort_layers, assign_gpus, get_next_batch,
     estimate_batch_minutes, get_batch_info, validate_task_plan,
     nvidia_smi_query_cmd, parse_free_gpus, gpu_poll_wait_script,
-    read_poll_result, _compute_calibration_ratio,
+    read_poll_result, parse_gpu_snapshot, write_poll_result,
+    _compute_calibration_ratio,
     experiment_monitor_script, read_monitor_result,
     claim_next_batch, get_running_gpu_ids, register_running_tasks,
     unregister_running_task,
@@ -508,6 +509,65 @@ class TestParseFreeGpus:
         output = "0, 100\n1, 100\n2, 100\n3, 100\n4, 100\n5, 100\n6, 100\n7, 100"
         free = parse_free_gpus(output, threshold_mb=2000, max_gpus=4)
         assert free == [0, 1, 2, 3]
+
+
+# ══════════════════════════════════════════════
+# GPU polling: parse_gpu_snapshot / write_poll_result
+# ══════════════════════════════════════════════
+
+class TestGpuPollPersistence:
+    def test_parse_gpu_snapshot_with_totals(self):
+        output = "0, 4096, 24576\n1, 1024, 24576"
+        snapshot = parse_gpu_snapshot(output)
+
+        assert snapshot == [
+            {
+                "gpu_id": 0,
+                "memory_used_mb": 4096,
+                "memory_total_mb": 24576,
+                "memory_used_pct": 16.67,
+            },
+            {
+                "gpu_id": 1,
+                "memory_used_mb": 1024,
+                "memory_total_mb": 24576,
+                "memory_used_pct": 4.17,
+            },
+        ]
+
+    def test_parse_gpu_snapshot_skips_bad_lines(self):
+        output = "garbage\n0, 2048\n1, nope, 24576\n2, 512, 8192"
+        snapshot = parse_gpu_snapshot(output)
+
+        assert snapshot == [
+            {"gpu_id": 0, "memory_used_mb": 2048},
+            {
+                "gpu_id": 2,
+                "memory_used_mb": 512,
+                "memory_total_mb": 8192,
+                "memory_used_pct": 6.25,
+            },
+        ]
+
+    def test_write_poll_result_persists_extended_payload(self, tmp_path):
+        marker = tmp_path / "gpu_free.json"
+        snapshot = [{"gpu_id": 0, "memory_used_mb": 1536, "memory_total_mb": 24576}]
+
+        payload = write_poll_result(
+            str(marker),
+            free_gpus=[0, 2],
+            poll_count=7,
+            snapshot=snapshot,
+            source="experiment_supervisor",
+        )
+
+        persisted = json.loads(marker.read_text(encoding="utf-8"))
+        assert payload["free_gpus"] == [0, 2]
+        assert payload["poll_count"] == 7
+        assert payload["snapshot"] == snapshot
+        assert payload["source"] == "experiment_supervisor"
+        assert isinstance(payload["updated_at"], float)
+        assert persisted == payload
 
 
 # ══════════════════════════════════════════════

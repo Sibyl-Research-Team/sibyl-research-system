@@ -38,6 +38,10 @@ init → literature_search → idea_debate → planning → pilot_experiments
 
 When `lark_enabled: true`, Feishu sync is no longer a pipeline stage. Instead, `cli_record()` appends a trigger to `lark_sync/pending_sync.jsonl` and returns `sync_requested: true`. The main Claude session must launch `sibyl-lark-sync` in the background and continue the research loop without waiting. Sync status is written to `lark_sync/sync_status.json`.
 
+### Background Experiment Supervisor Wake Path
+
+The experiment supervisor owns local recovery, GPU refresh, dispatch, and lightweight intervention. When it either resolves something material or hits a blocker that needs main-loop judgment, it appends a structured wake event to `exp/experiment_supervisor_main_wake.jsonl` via `experiment-supervisor-notify-main`. The main control-plane loop must not sleep for the full experiment poll interval in one chunk; instead it checks `wake_cmd` every short interval (`wake_check_interval_sec`, default 90 seconds) and immediately collaborates when an event reports `requires_main_system: true`.
+
 ## Action Types
 
 The orchestrator returns actions that the main session executes:

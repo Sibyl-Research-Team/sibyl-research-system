@@ -308,7 +308,7 @@ def _render_control_plane_loop(workspace_path: str | Path | None = None) -> str:
                 Use only these repo-local CLIs for orchestration:
                 - `cli_next(workspace)` -> next action payload
                 - `cli_record(workspace, stage)` -> persist stage completion
-                - `cli_resume(workspace)` -> clear manual stop / legacy pause markers
+                - `cli_resume(workspace)` -> clear manual stop / legacy pause markers and return recovery hints
                 - `cli_status(workspace)` -> inspect current stage and iteration
                 - `cli_dispatch_tasks(workspace)` -> start queued experiment tasks when GPUs free up
                 - `cli_experiment_status(workspace)` -> render the experiment progress panel
@@ -351,7 +351,8 @@ def _render_control_plane_loop(workspace_path: str | Path | None = None) -> str:
                    - `gpu_poll`: keep polling until GPUs free up; never pause on timeout.
                    - `experiment_wait`: keep polling running experiments until all tasks finish; render the status panel each poll.
                    - `done`: emit `SIBYL_PIPELINE_COMPLETE`.
-                   - `stopped`: run `cli_resume('{workspace}')` only when the user asked to continue or resume, then restart the loop.
+                   - `stopped`: run `cli_resume('{workspace}')` only when the user asked to continue or resume.
+                     If the resume payload reports pending hooks or background agents, restart them before restarting the loop.
                 4. After successful execution, call `cli_record('{workspace}', action.stage)`.
                 5. If `cli_record` returns `sync_requested: true`, start the background lark sync flow (`run_in_background`)
                    without blocking the main loop.
@@ -362,8 +363,14 @@ def _render_control_plane_loop(workspace_path: str | Path | None = None) -> str:
             "Experiment Monitoring",
             textwrap.dedent(
                 f"""
-                For `skills_parallel` or `experiment_wait` actions carrying `experiment_monitor`:
-                - sleep for the requested poll interval instead of spending tokens on idle reasoning
+                For `skill`, `skills_parallel`, or `experiment_wait` actions carrying `experiment_monitor`:
+                - immediately start `experiment_monitor.background_agent` with `run_in_background=true`; do not wait
+                - treat that background supervisor as the long-lived owner for GPU refresh, queue dispatch, and runtime-drift intervention
+                - treat `experiment_monitor.wake_cmd` as a high-priority inbox from the background supervisor
+                - never sleep for the full poll interval in one chunk; break waiting into `experiment_monitor.wake_check_interval_sec` chunks
+                  and call `experiment_monitor.wake_cmd` after each chunk
+                - if the wake payload reports `wake_requested=true`, immediately inspect the returned events before continuing
+                - if any event says `requires_main_system=true` or `kind=needs_main_system`, stop waiting and collaborate now
                 - check remote completion markers via SSH MCP
                 - call `cli_experiment_status('{workspace}')` every poll and show its `display` text directly to the user
                 - when work completes and GPUs free up, call `cli_dispatch_tasks('{workspace}')` and launch any returned skills
@@ -411,8 +418,13 @@ def render_control_plane_prompt(
                 textwrap.dedent(
                     f"""
                     1. Read `{workspace}/breadcrumb.json` to recover the last known stage and loop state.
-                    2. Read `{workspace}/logs/research_diary.md` for iteration history and context.
-                    3. Follow the compiled control-plane loop below for every iteration.
+                    2. If `{workspace}/lark_sync/pending_sync.jsonl` still has pending entries, immediately restart
+                       `sibyl-lark-sync` in the background and do not wait for it.
+                    3. Read `{workspace}/logs/research_diary.md` for iteration history and context.
+                    4. On the first `cli_next('{workspace}')` after a resume/continue, treat the returned action as
+                       authoritative recovery state: if it carries `experiment_monitor.background_agent`, restart that
+                       background agent before continuing the main loop.
+                    5. Follow the compiled control-plane loop below for every iteration.
                     """
                 ).strip(),
             ),
