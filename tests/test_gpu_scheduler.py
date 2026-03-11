@@ -9,7 +9,8 @@ from sibyl.gpu_scheduler import (
     nvidia_smi_query_cmd, parse_free_gpus, gpu_poll_wait_script,
     read_poll_result, _compute_calibration_ratio,
     experiment_monitor_script, read_monitor_result,
-    register_running_tasks, unregister_running_task, get_running_gpu_ids,
+    claim_next_batch, get_running_gpu_ids, register_running_tasks,
+    unregister_running_task,
 )
 
 
@@ -977,6 +978,53 @@ class TestGetRunningGpuIds:
 
     def test_no_running_returns_empty(self, tmp_path):
         assert get_running_gpu_ids(tmp_path) == []
+
+
+class TestGlobalGpuLeases:
+    def _write_task_plan(self, workspace_root, task_id):
+        plan_dir = workspace_root / "plan"
+        plan_dir.mkdir(parents=True, exist_ok=True)
+        (plan_dir / "task_plan.json").write_text(
+            json.dumps({
+                "tasks": [
+                    {
+                        "id": task_id,
+                        "depends_on": [],
+                        "gpu_count": 1,
+                        "estimated_minutes": 10,
+                    }
+                ]
+            }),
+            encoding="utf-8",
+        )
+
+    def test_claim_next_batch_avoids_gpus_leased_by_other_workspace(self, tmp_path):
+        workspace_a = tmp_path / "workspace-a"
+        workspace_b = tmp_path / "workspace-b"
+        self._write_task_plan(workspace_a, "task_a")
+        self._write_task_plan(workspace_b, "task_b")
+
+        register_running_tasks(workspace_a, {"task_a": [0]})
+
+        result = claim_next_batch(workspace_b, [0, 1], "PILOT")
+
+        assert result is not None
+        assert result["batch"][0]["task_ids"] == ["task_b"]
+        assert result["batch"][0]["gpu_ids"] == [1]
+
+    def test_unregister_releases_global_gpu_lease(self, tmp_path):
+        workspace_a = tmp_path / "workspace-a"
+        workspace_b = tmp_path / "workspace-b"
+        self._write_task_plan(workspace_a, "task_a")
+        self._write_task_plan(workspace_b, "task_b")
+
+        register_running_tasks(workspace_a, {"task_a": [0]})
+        unregister_running_task(workspace_a, "task_a")
+
+        result = claim_next_batch(workspace_b, [0], "PILOT")
+
+        assert result is not None
+        assert result["batch"][0]["gpu_ids"] == [0]
 
 
 class TestGetNextBatchWithRunning:

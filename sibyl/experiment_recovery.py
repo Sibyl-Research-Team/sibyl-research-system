@@ -298,15 +298,20 @@ def sync_to_gpu_progress(workspace_root: Path, state: ExperimentState) -> None:
 
         if status == "completed":
             gp["running"].pop(task_id, None)
+            gp.setdefault("failed", [])
+            gp["failed"] = [item for item in gp["failed"] if item != task_id]
             if task_id not in gp["completed"]:
                 gp["completed"].append(task_id)
 
         elif status == "failed":
             gp["running"].pop(task_id, None)
+            gp["completed"] = [item for item in gp["completed"] if item != task_id]
             if task_id not in gp.get("failed", []):
                 gp.setdefault("failed", []).append(task_id)
 
         elif status == "running":
+            gp.setdefault("failed", [])
+            gp["failed"] = [item for item in gp["failed"] if item != task_id]
             if task_id not in gp["running"]:
                 gp["running"][task_id] = {
                     "gpu_ids": info.get("gpu_ids", []),
@@ -317,6 +322,29 @@ def sync_to_gpu_progress(workspace_root: Path, state: ExperimentState) -> None:
     from sibyl.gpu_scheduler import sync_workspace_gpu_leases
 
     sync_workspace_gpu_leases(workspace_root, gp.get("running", {}))
+
+
+def mark_task_for_retry(
+    workspace_root: Path,
+    task_id: str,
+    *,
+    reason: str = "",
+) -> dict:
+    """Mark a running/interrupted task for retry by clearing its running lease."""
+    now = datetime.datetime.now().isoformat()
+    state = load_experiment_state(workspace_root)
+    task = state.tasks.setdefault(task_id, {})
+    previous_status = task.get("status", "")
+    task["status"] = "failed"
+    task["error_summary"] = reason or "manual_retry_requested"
+    task["retry_requested_at"] = now
+    state.last_recovery_at = now
+    state.recovery_log.append(
+        f"[{now}] {task_id}: marked for retry (previous_status={previous_status or 'unknown'}, reason={reason or 'manual_retry_requested'})"
+    )
+    save_experiment_state(workspace_root, state)
+    sync_to_gpu_progress(workspace_root, state)
+    return task
 
 
 def migrate_from_gpu_progress(workspace_root: Path) -> ExperimentState:

@@ -1,7 +1,5 @@
 """Tests for the Sibyl CLI entrypoint."""
 
-from pathlib import Path
-
 import pytest
 
 import sibyl.cli as cli

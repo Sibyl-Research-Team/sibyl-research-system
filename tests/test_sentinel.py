@@ -3,7 +3,6 @@ import json
 import time
 import io
 import sys
-from pathlib import Path
 
 import pytest
 
@@ -15,10 +14,7 @@ from sibyl.orchestrate import (
 )
 
 
-@pytest.fixture
-def workspace(tmp_path):
-    """Minimal workspace for sentinel tests."""
-    ws = tmp_path / "test_project"
+def _init_workspace(ws):
     ws.mkdir()
     (ws / "status.json").write_text(json.dumps({
         "stage": "experiment_cycle",
@@ -37,6 +33,13 @@ def workspace(tmp_path):
     )
     (ws / "exp").mkdir()
     return ws
+
+
+@pytest.fixture
+def workspace(tmp_path):
+    """Minimal workspace for sentinel tests."""
+    ws = tmp_path / "test_project"
+    return _init_workspace(ws)
 
 
 class TestHeartbeat:
@@ -63,14 +66,44 @@ class TestSessionPersistence:
     def test_write_session(self, workspace):
         old_stdout = sys.stdout
         sys.stdout = io.StringIO()
-        cli_sentinel_session(str(workspace), "abc-123-def")
+        cli_sentinel_session(str(workspace), "abc-123-def", "%1")
+        output = sys.stdout.getvalue()
         sys.stdout = old_stdout
 
+        result = json.loads(output)
+        assert result["status"] == "ok"
+        assert result["tmux_pane"] == "%1"
         session_path = workspace / "sentinel_session.json"
         assert session_path.exists()
         data = json.loads(session_path.read_text())
         assert data["session_id"] == "abc-123-def"
+        assert data["tmux_pane"] == "%1"
+        assert data["ownership_conflict"] is False
+        assert data["ralph_prompt_path"].endswith("/.claude/ralph-prompt.txt")
         assert "saved_at" in data
+
+    def test_conflicting_workspace_claim_reports_ownership_conflict(self, workspace, tmp_path):
+        other = _init_workspace(tmp_path / "other_project")
+
+        old_stdout = sys.stdout
+        sys.stdout = io.StringIO()
+        cli_sentinel_session(str(other), "shared-session", "%2")
+        sys.stdout = io.StringIO()
+        cli_sentinel_session(str(workspace), "shared-session", "%1")
+        session_output = sys.stdout.getvalue()
+        sys.stdout = io.StringIO()
+        cli_sentinel_config(str(workspace))
+        config_output = sys.stdout.getvalue()
+        sys.stdout = old_stdout
+
+        session_data = json.loads(session_output)
+        config_data = json.loads(config_output)
+        assert session_data["status"] == "conflict"
+        assert session_data["ownership_conflict"] is True
+        assert session_data["conflicts"][0]["workspace_path"] == str(other)
+        assert "session_id" in session_data["conflicts"][0]["reasons"]
+        assert config_data["ownership_conflict"] is True
+        assert config_data["watchdog_allowed"] is False
 
 
 class TestSentinelConfig:
@@ -94,6 +127,8 @@ class TestSentinelConfig:
         assert data["stop_requested"] is False
         assert data["auto_resume_pending"] is False
         assert data["should_keep_running"] is True
+        assert data["watchdog_allowed"] is True
+        assert data["ralph_prompt_path"].endswith("/.claude/ralph-prompt.txt")
         assert "heartbeat" in data
         assert data["heartbeat"]["stage"] == "experiment_cycle"
 

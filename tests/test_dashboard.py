@@ -101,6 +101,35 @@ class TestProjectsEndpoint:
         assert r.status_code == 200
         assert r.get_json() == []
 
+    def test_list_projects_does_not_materialize_runtime_scaffold(self, tmp_path):
+        ws_dir = tmp_path / "workspaces"
+        proj = ws_dir / "bare-proj"
+        proj.mkdir(parents=True)
+        (proj / "status.json").write_text(json.dumps({
+            "stage": "planning",
+            "started_at": 1000.0,
+            "updated_at": 2000.0,
+            "iteration": 1,
+            "errors": [],
+            "paused": False,
+            "paused_at": None,
+            "stop_requested": False,
+            "stop_requested_at": None,
+            "iteration_dirs": False,
+            "stage_started_at": 1500.0,
+        }), encoding="utf-8")
+
+        config = Config(workspaces_dir=ws_dir)
+        app = create_app(config)
+        app.config["TESTING"] = True
+
+        r = app.test_client().get("/api/projects")
+        assert r.status_code == 200
+        data = r.get_json()
+        assert data[0]["name"] == "bare-proj"
+        assert not (proj / ".sibyl" / "system.json").exists()
+        assert not (proj / "CLAUDE.md").exists()
+
 
 class TestDashboardEndpoint:
     def test_dashboard(self, client):
@@ -128,6 +157,39 @@ class TestDashboardEndpoint:
     def test_dashboard_404(self, client):
         r = client.get("/api/projects/nonexistent/dashboard")
         assert r.status_code == 404
+
+    def test_dashboard_does_not_materialize_runtime_scaffold(self, tmp_path):
+        ws_dir = tmp_path / "workspaces"
+        proj = ws_dir / "bare-proj"
+        logs = proj / "logs"
+        proj.mkdir(parents=True)
+        logs.mkdir()
+        (proj / "status.json").write_text(json.dumps({
+            "stage": "planning",
+            "started_at": 1000.0,
+            "updated_at": 2000.0,
+            "iteration": 1,
+            "errors": [],
+            "paused": False,
+            "paused_at": None,
+            "stop_requested": False,
+            "stop_requested_at": None,
+            "iteration_dirs": False,
+            "stage_started_at": 1500.0,
+        }), encoding="utf-8")
+        (logs / "events.jsonl").write_text("", encoding="utf-8")
+
+        config = Config(workspaces_dir=ws_dir)
+        app = create_app(config)
+        app.config["TESTING"] = True
+
+        r = app.test_client().get("/api/projects/bare-proj/dashboard")
+        assert r.status_code == 200
+        data = r.get_json()
+        assert data["status"]["name"] == "bare-proj"
+        assert data["runtime"]["runtime_ready"] is False
+        assert not (proj / ".sibyl" / "system.json").exists()
+        assert not (proj / "CLAUDE.md").exists()
 
 
 class TestFilesEndpoint:

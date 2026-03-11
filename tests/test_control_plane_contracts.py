@@ -10,6 +10,8 @@ import re
 import subprocess
 from pathlib import Path
 
+from sibyl.orchestrate import render_control_plane_prompt
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -61,12 +63,15 @@ def test_sibyl_skill_prompt_loaders_are_workspace_aware():
     checked = 0
     for path in skill_files:
         text = path.read_text(encoding="utf-8")
-        if "load_common_prompt" not in text:
+        if "render_skill_prompt" not in text:
             continue
         checked += 1
+        if "self-healer" in str(path):
+            assert "render_skill_prompt('self_healer')" in text, path
+            continue
         assert 'SIBYL_WORKSPACE="' in text, path
         assert "ws = os.environ.get('SIBYL_WORKSPACE', '')" in text, path
-        assert "load_common_prompt(ws)" in text, path
+        assert "render_skill_prompt(" in text, path
         assert "workspace_path=ws" in text, path
 
     assert checked > 0
@@ -103,6 +108,29 @@ def test_plugin_language_defaults_use_zh():
     assert found_zh, "No file contains language default 'zh'"
 
 
+def test_plugin_commands_use_compiled_control_plane_prompt():
+    for rel_path in (
+        "plugin/commands/start.md",
+        "plugin/commands/resume.md",
+        "plugin/commands/continue.md",
+        "plugin/commands/debug.md",
+    ):
+        text = (REPO_ROOT / rel_path).read_text(encoding="utf-8")
+        assert "render_control_plane_prompt" in text, rel_path
+
+
+def test_plugin_commands_enforce_workspace_session_isolation():
+    for rel_path in (
+        "plugin/commands/start.md",
+        "plugin/commands/resume.md",
+        "plugin/commands/continue.md",
+    ):
+        text = (REPO_ROOT / rel_path).read_text(encoding="utf-8")
+        assert "CURRENT_PANE" in text, rel_path
+        assert "ownership_conflict" in text, rel_path
+        assert "独立的 Claude pane/session" in text, rel_path
+
+
 def test_no_stale_hardcoded_language_clauses():
     banned = (
         "All output in Chinese",
@@ -132,25 +160,34 @@ def test_writing_prompts_fix_paper_language_contract():
     assert "翻译成英文" not in latex_prompt
 
 
+def test_review_prompts_define_canonical_json_outputs():
+    supervisor_prompt = (REPO_ROOT / "sibyl/prompts/supervisor.md").read_text(encoding="utf-8")
+    critic_prompt = (REPO_ROOT / "sibyl/prompts/critic.md").read_text(encoding="utf-8")
+    reflection_prompt = (REPO_ROOT / "sibyl/prompts/reflection.md").read_text(encoding="utf-8")
+
+    assert "supervisor/review.json" in supervisor_prompt
+    assert "critic/findings.json" in critic_prompt
+    assert "supervisor/review.json" in reflection_prompt
+    assert "critic/findings.json" in reflection_prompt
+
+
 def test_architecture_docs_describe_project_scoped_gpu_marker():
     architecture_doc = (REPO_ROOT / "docs/architecture.md").read_text(encoding="utf-8")
-    assert "/tmp/sibyl_<project>_gpu_free.json" in architecture_doc
+    assert "/tmp/sibyl_<workspace_scope>_gpu_free.json" in architecture_doc
 
 
 def test_background_lark_sync_docs_match_runtime_contract():
-    loop_doc = (REPO_ROOT / "sibyl/prompts/orchestration_loop.md").read_text(encoding="utf-8")
+    loop_prompt = render_control_plane_prompt("loop", workspace_path="WORKSPACE_PATH")
     debug_doc = (REPO_ROOT / "plugin/commands/debug.md").read_text(encoding="utf-8")
     architecture_doc = (REPO_ROOT / "docs/architecture.md").read_text(encoding="utf-8")
     setup_doc = (REPO_ROOT / "docs/feishu-lark-setup.md").read_text(encoding="utf-8")
 
-    assert "sync_requested" in loop_doc
-    assert "pending_sync.jsonl" in loop_doc
-    assert "run_in_background" in loop_doc
-    assert "lark_sync → quality_gate" not in loop_doc
-    assert "完整同步在 lark_sync 阶段" not in loop_doc
+    assert "sync_requested: true" in loop_prompt
+    assert "run_in_background" in loop_prompt
+    assert "lark_sync → quality_gate" not in loop_prompt
 
     assert "sync_requested" in debug_doc
-    assert "后台启动 `sibyl-lark-sync" in debug_doc
+    assert "LARK-SYNC-HOOK" in debug_doc
     assert '"lark_sync": 由 sibyl-lark-sync skill 自动执行飞书同步。' not in debug_doc
 
     assert "18-stage state machine" in architecture_doc
@@ -166,9 +203,9 @@ def test_background_lark_sync_docs_match_runtime_contract():
 
 def test_gpu_poll_docs_describe_never_stop_contract():
     """GPU poll docs must describe never-stop behavior (no pause on timeout)."""
+    loop_prompt = render_control_plane_prompt("loop", workspace_path="WORKSPACE_PATH")
     required = {
         "CLAUDE.md": ("action.gpu_poll.script", "永不放弃"),
-        "sibyl/prompts/orchestration_loop.md": ("gpu_poll", "永不放弃"),
     }
 
     for rel_path, snippets in required.items():
@@ -176,23 +213,26 @@ def test_gpu_poll_docs_describe_never_stop_contract():
         for snippet in snippets:
             assert snippet in text, f"{rel_path} missing {snippet}"
 
-    # Verify no file tells the system to pause on GPU poll timeout
-    for rel_path in ("sibyl/prompts/orchestration_loop.md",):
-        text = (REPO_ROOT / rel_path).read_text(encoding="utf-8")
-        assert "gpu_poll_timeout" not in text, f"{rel_path} still references gpu_poll_timeout pause"
+    assert "gpu_poll" in loop_prompt
+    assert "never pause on timeout" in loop_prompt
+    assert "gpu_poll_timeout" not in loop_prompt
 
 
 def test_experiment_wait_docs_match_runtime_contract():
     """experiment_wait polling cadence should stay aligned across docs/runtime."""
+    loop_prompt = render_control_plane_prompt("loop", workspace_path="WORKSPACE_PATH")
     required = {
         "CLAUDE.md": ("<30min→2min", "30-120min→5min", ">120min→10min"),
-        "sibyl/prompts/orchestration_loop.md": ("剩余 ≤30min: 每 2min", "剩余 30-120min: 每 5min", "剩余 >120min: 每 10min"),
     }
 
     for rel_path, snippets in required.items():
         text = (REPO_ROOT / rel_path).read_text(encoding="utf-8")
         for snippet in snippets:
             assert snippet in text, f"{rel_path} missing {snippet}"
+
+    assert "remaining <=30min -> 2min" in loop_prompt
+    assert "30-120min -> 5min" in loop_prompt
+    assert ">120min -> 10min" in loop_prompt
 
 
 def test_codex_integration_is_explicit_opt_in_everywhere():
@@ -245,6 +285,18 @@ def test_config_docs_match_runtime_defaults():
     assert 'language: zh' in config_example
     assert 'ssh_server: "default"' in config_example
     assert 'language: en' not in config_example
+
+
+def test_progress_tracking_instructions_in_loop_prompt():
+    loop_prompt = render_control_plane_prompt("loop", workspace_path="WORKSPACE_PATH")
+    ralph_prompt = render_control_plane_prompt(
+        "ralph_loop", workspace_path="/tmp/t", project_name="t"
+    )
+    for prompt in (loop_prompt, ralph_prompt):
+        assert "Progress Tracking" in prompt
+        assert "TaskUpdate" in prompt
+        assert "addBlockedBy" in prompt
+        assert "cli_status" in prompt
 
 
 def test_no_unresolved_env_or_pilot_placeholders_in_prompts():

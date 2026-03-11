@@ -63,6 +63,64 @@ class TestWorkspaceInit:
         assert skills_link.resolve() == (Path(__file__).resolve().parents[1] / ".claude" / "skills")
 
 
+class TestWorkspaceOpenExisting:
+    def test_open_existing_does_not_materialize_runtime_scaffold(self, tmp_path):
+        proj = tmp_path / "bare-proj"
+        proj.mkdir()
+        (proj / "status.json").write_text(json.dumps({
+            "stage": "planning",
+            "started_at": 1.0,
+            "updated_at": 2.0,
+            "iteration": 1,
+            "errors": [],
+            "paused": False,
+            "paused_at": None,
+            "stop_requested": False,
+            "stop_requested_at": None,
+            "iteration_dirs": False,
+            "stage_started_at": 1.5,
+        }), encoding="utf-8")
+
+        ws = Workspace.open_existing(tmp_path, "bare-proj")
+        metadata = ws.get_project_metadata()
+
+        assert metadata["stage"] == "planning"
+        assert not (proj / ".sibyl" / "system.json").exists()
+        assert not (proj / "CLAUDE.md").exists()
+        assert not (proj / ".claude").exists()
+
+    def test_open_existing_infers_iteration_dirs_from_status(self, tmp_path):
+        proj = tmp_path / "iter-proj"
+        current = proj / "current"
+        iter_dir = proj / "iter_002"
+        iter_dir.mkdir(parents=True)
+        current.symlink_to(iter_dir.name)
+        (proj / "status.json").write_text(json.dumps({
+            "stage": "experiment_cycle",
+            "started_at": 1.0,
+            "updated_at": 2.0,
+            "iteration": 2,
+            "errors": [],
+            "paused": False,
+            "paused_at": None,
+            "stop_requested": False,
+            "stop_requested_at": None,
+            "iteration_dirs": True,
+            "stage_started_at": 1.5,
+        }), encoding="utf-8")
+
+        ws = Workspace.open_existing(tmp_path, "iter-proj")
+
+        assert ws.active_root == current
+
+    def test_open_existing_requires_status_json(self, tmp_path):
+        proj = tmp_path / "missing-status"
+        proj.mkdir()
+
+        with pytest.raises(FileNotFoundError, match="status.json"):
+            Workspace.open_existing(tmp_path, "missing-status")
+
+
 class TestWorkspaceStatus:
     def test_update_stage(self, tmp_ws):
         tmp_ws.update_stage("literature_search")

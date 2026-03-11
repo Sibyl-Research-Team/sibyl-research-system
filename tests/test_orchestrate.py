@@ -8,6 +8,7 @@ import pytest
 
 from sibyl.orchestrate import (
     FarsOrchestrator, load_prompt, load_common_prompt,
+    render_skill_prompt, render_control_plane_prompt,
     PAPER_SECTIONS, cli_checkpoint, cli_dispatch_tasks,
     project_marker_file, self_heal_monitor_script,
     cli_experiment_status, cli_next, migrate_workspace, collect_dashboard_data,
@@ -225,12 +226,48 @@ class TestBackgroundSync:
         output = json.loads(captured.out)
         assert "lark_sync_status" not in output
 
+    def test_cli_status_does_not_materialize_runtime_scaffold(self, tmp_path, capsys):
+        proj = tmp_path / "bare-status"
+        proj.mkdir()
+        (proj / "status.json").write_text(json.dumps({
+            "stage": "planning",
+            "started_at": 1.0,
+            "updated_at": 2.0,
+            "iteration": 1,
+            "errors": [],
+            "paused": False,
+            "paused_at": None,
+            "stop_requested": False,
+            "stop_requested_at": None,
+            "iteration_dirs": False,
+            "stage_started_at": 1.5,
+        }), encoding="utf-8")
+
+        from sibyl.orchestrate import cli_status
+        cli_status(str(proj))
+
+        output = json.loads(capsys.readouterr().out)
+        assert output["stage"] == "planning"
+        assert not (proj / ".sibyl" / "system.json").exists()
+        assert not (proj / "CLAUDE.md").exists()
+
 
 # ══════════════════════════════════════════════
 # Quality gate
 # ══════════════════════════════════════════════
 
 class TestQualityGate:
+    def test_done_when_score_above_threshold_from_review_json(self, make_orchestrator):
+        o = make_orchestrator(stage="quality_gate", iteration=2)
+        o.ws.write_file("supervisor/review.json", json.dumps({
+            "score": 9.0,
+            "verdict": "done",
+            "summary": "Ready to finish",
+            "issues": [],
+        }))
+        o.record_result("quality_gate")
+        assert o.ws.get_status().stage == "done"
+
     def test_done_when_score_above_threshold(self, make_orchestrator):
         o = make_orchestrator(stage="quality_gate", iteration=2)
         o.ws.write_file("supervisor/review_writing.md", "Overall quality score: 9.0")
@@ -283,7 +320,12 @@ class TestQualityGate:
 
     def test_threshold_from_action_plan(self, make_orchestrator):
         o = make_orchestrator(stage="quality_gate", iteration=2)
-        o.ws.write_file("supervisor/review_writing.md", "score: 7.0")
+        o.ws.write_file("supervisor/review.json", json.dumps({
+            "score": 7.0,
+            "verdict": "revise",
+            "summary": "Needs more work",
+            "issues": [],
+        }))
         o.ws.write_file("reflection/action_plan.json", json.dumps({
             "suggested_threshold_adjustment": 6.0
         }))
@@ -305,7 +347,12 @@ class TestQualityGate:
 
     def test_max_iterations_not_hard_capped_at_20(self, make_orchestrator):
         o = make_orchestrator(stage="quality_gate", iteration=2, max_iterations_cap=100)
-        o.ws.write_file("supervisor/review_writing.md", "score: 7.0")
+        o.ws.write_file("supervisor/review.json", json.dumps({
+            "score": 7.0,
+            "verdict": "revise",
+            "summary": "Needs more work",
+            "issues": [],
+        }))
         o.ws.write_file("reflection/action_plan.json", json.dumps({
             "suggested_max_iterations": 50,
         }))
@@ -898,6 +945,23 @@ class TestActionGeneration:
 # ══════════════════════════════════════════════
 
 class TestPostReflectionHook:
+    def test_logs_iteration_from_structured_review_json(self, make_orchestrator):
+        o = make_orchestrator(stage="reflection", iteration=1)
+        o.ws.write_file(
+            "supervisor/review.json",
+            json.dumps(
+                {
+                    "score": 7.25,
+                    "verdict": "continue",
+                    "summary": "Promising but needs stronger baselines",
+                    "issues": [],
+                }
+            ),
+        )
+        o.record_result("reflection")
+        log = json.loads((o.ws.root / "logs/iterations/iter_001_reflection.json").read_text())
+        assert log["quality_score"] == 7.25
+
     def test_logs_iteration(self, make_orchestrator):
         o = make_orchestrator(stage="reflection", iteration=1)
         o.ws.write_file("supervisor/review_writing.md", "score: 7.0")
@@ -908,10 +972,20 @@ class TestPostReflectionHook:
     def test_writes_diary(self, make_orchestrator):
         o = make_orchestrator(stage="reflection", iteration=1, lark_enabled=False)
         o.ws.write_file("supervisor/review_writing.md", "score: 7.0")
+        o.ws.write_file(
+            "critic/findings.json",
+            json.dumps(
+                {
+                    "summary": "Main weakness is missing ablation detail",
+                    "findings": [],
+                }
+            ),
+        )
         o.record_result("reflection")
         diary = o.ws.read_file("logs/research_diary.md")
         assert diary is not None
         assert "Iteration 1" in diary
+        assert "missing ablation detail" in diary
 
     def test_survives_missing_files(self, make_orchestrator):
         """Hook should not crash if supervisor/critic files are missing."""
@@ -975,6 +1049,48 @@ class TestPostReflectionHook:
         record = [entry for entry in outcomes if entry.get("project") == "test-proj"][0]
         assert record["classified_issues"][0]["category"] == "analysis"
         assert record["classified_issues"][0]["severity"] == "high"
+
+    def test_infers_fixed_issues_from_previous_action_plan(self, make_orchestrator):
+        o = make_orchestrator(stage="reflection", iteration=2, lark_enabled=False)
+        o.ws.write_file(
+            "reflection/prev_action_plan.json",
+            json.dumps(
+                {
+                    "issues_classified": [
+                        {
+                            "description": "Weak baseline comparison",
+                            "category": "analysis",
+                            "severity": "medium",
+                            "status": "recurring",
+                            "issue_key": "analysis:weak-baseline-comparison",
+                        }
+                    ]
+                },
+                ensure_ascii=False,
+            ),
+        )
+        o.ws.write_file("reflection/action_plan.json", '{"issues_classified": []}')
+
+        o.record_result("reflection")
+
+        log = json.loads((o.ws.root / "logs/iterations/iter_002_reflection.json").read_text())
+        assert "Weak baseline comparison" in log["issues_fixed"]
+
+    def test_writes_quality_trend_when_evolution_enabled(self, make_orchestrator):
+        o = make_orchestrator(
+            stage="reflection",
+            iteration=1,
+            lark_enabled=False,
+            evolution_enabled=True,
+        )
+        o.ws.write_file("supervisor/review_writing.md", "score: 6.5")
+
+        o.record_result("reflection")
+
+        trend = o.ws.read_file("logs/quality_trend.md")
+        assert trend is not None
+        assert "# 质量趋势" in trend
+        assert "score=6.5" in trend
 
 
 # ══════════════════════════════════════════════
@@ -1192,7 +1308,7 @@ class TestSkillArgContracts:
             str(o.ws.root),
             "PILOT",
             "default",
-            "/home/user/sibyl_system",
+            o.config.remote_base,
             o.config.get_remote_env_cmd(o.ws.name),
         ]
         assert args[5] == "0,1,2,3"
@@ -1211,7 +1327,7 @@ class TestSkillArgContracts:
             str(o.ws.root),
             "PILOT",
             "default",
-            "/home/user/sibyl_system",
+            o.config.remote_base,
             o.config.get_remote_env_cmd(o.ws.name),
             "0,1,2,3",
             "server_codex",
@@ -1231,7 +1347,7 @@ class TestSkillArgContracts:
             str(o.ws.root),
             "PILOT",
             "default",
-            "/home/user/sibyl_system",
+            o.config.remote_base,
             o.config.get_remote_env_cmd(o.ws.name),
             "0,1,2,3",
             "server_claude",
@@ -1314,6 +1430,36 @@ class TestPromptLoading:
 
         assert "Prefer CIFAR-10 only" in prompt
 
+    def test_render_skill_prompt_compiles_shared_runtime_sections(self, tmp_path):
+        ws = Workspace(tmp_path, "compiled-prompt-proj")
+        prompt = render_skill_prompt("planner", workspace_path=ws.root)
+        assert "# Compiled Sibyl Skill Prompt: planner" in prompt
+        assert "## Locale Contract" in prompt
+        assert "## Workspace Contract" in prompt
+        assert "## Role Protocol" in prompt
+
+    def test_render_skill_prompt_appends_project_memory(self, tmp_path, monkeypatch):
+        ws = Workspace(tmp_path, "compiled-memory-proj")
+        memory_path = ws.root / ".sibyl" / "project" / "MEMORY.md"
+        memory_path.write_text("# Project Memory\n\n- Prefer CIFAR-10 only\n", encoding="utf-8")
+
+        monkeypatch.chdir(ws.root)
+        prompt = render_skill_prompt("planner", workspace_path=ws.root)
+
+        assert "## Project Constraints" in prompt
+        assert "Prefer CIFAR-10 only" in prompt
+
+    def test_render_skill_prompt_appends_project_overlay(self, tmp_path, monkeypatch):
+        ws = Workspace(tmp_path, "compiled-overlay-proj")
+        overlay_path = ws.root / ".sibyl" / "project" / "prompt_overlays" / "planner.md"
+        overlay_path.write_text("Project overlay: reuse the frozen baseline.", encoding="utf-8")
+
+        monkeypatch.chdir(ws.root)
+        prompt = render_skill_prompt("planner", workspace_path=ws.root)
+
+        assert "## Project Overrides" in prompt
+        assert "Project overlay: reuse the frozen baseline." in prompt
+
     def test_load_prompt_appends_project_overlay(self, tmp_path, monkeypatch):
         ws = Workspace(tmp_path, "overlay-proj")
         overlay_path = ws.root / ".sibyl" / "project" / "prompt_overlays" / "planner.md"
@@ -1347,11 +1493,27 @@ class TestPromptLoading:
                 6.0,
             )
 
-        prompt = load_prompt("section_writer", workspace_path=ws.root)
+        prompt = render_skill_prompt("section_writer", workspace_path=ws.root)
 
-        assert "# 经验教训 (上下文过滤)" in prompt
+        assert "## Evolution Lessons" in prompt
         assert "Paper writing clarity issues" in prompt
         assert "SSH connection failed" not in prompt
+
+    def test_render_control_plane_prompt_compiles_loop(self):
+        prompt = render_control_plane_prompt("loop", workspace_path="workspaces/demo")
+        assert "# Sibyl Control-Plane Loop" in prompt
+        assert "cli_next('workspaces/demo')" in prompt
+        assert "sync_requested: true" in prompt
+
+    def test_render_control_plane_prompt_compiles_ralph(self):
+        prompt = render_control_plane_prompt(
+            "ralph_loop",
+            workspace_path="workspaces/demo",
+            project_name="demo",
+        )
+        assert "# Sibyl Ralph Loop Runtime" in prompt
+        assert "Project: `demo`" in prompt
+        assert "workspaces/demo/breadcrumb.json" in prompt
 
     def test_sequential_writer_requires_figures_block(self):
         prompt = load_prompt("sequential_writer")
@@ -1440,6 +1602,30 @@ class TestMigration:
         assert result["runtime"]["nested_project_dir_exists"] is False
         assert result["warnings"] == []
 
+    def test_migrate_workspace_normalizes_project_config_workspaces_dir(self, tmp_path, monkeypatch):
+        project = tmp_path / "config-proj"
+        project.mkdir(parents=True)
+        (project / "status.json").write_text(json.dumps({
+            "stage": "init",
+            "started_at": 1000.0,
+            "updated_at": 1000.0,
+            "iteration": 0,
+            "errors": [],
+        }))
+        (project / "topic.txt").write_text("Config topic\n", encoding="utf-8")
+        (project / "config.yaml").write_text(
+            "workspaces_dir: workspaces\nssh_server: my-box\n",
+            encoding="utf-8",
+        )
+
+        monkeypatch.chdir(Path(__file__).resolve().parents[1])
+        result = migrate_workspace(project)
+
+        assert "Normalized project config workspaces_dir to workspace parent" in result["changes"]
+        stored_config = (project / "config.yaml").read_text(encoding="utf-8")
+        assert f"workspaces_dir: {project.parent.resolve()}" in stored_config
+        assert "ssh_server: my-box" in stored_config
+
     def test_collect_dashboard_data_includes_runtime(self, tmp_path):
         ws = Workspace(tmp_path, "dashboard-proj")
         ws.write_file("topic.txt", "Dashboard topic")
@@ -1454,6 +1640,30 @@ class TestMigration:
         assert payload["status"]["name"] == "dashboard-proj"
         assert payload["runtime"]["runtime_ready"] is True
         assert "stages" in payload
+
+    def test_collect_dashboard_data_does_not_materialize_runtime_scaffold(self, tmp_path):
+        proj = tmp_path / "dashboard-bare"
+        proj.mkdir()
+        (proj / "status.json").write_text(json.dumps({
+            "stage": "planning",
+            "started_at": 1.0,
+            "updated_at": 2.0,
+            "iteration": 1,
+            "errors": [],
+            "paused": False,
+            "paused_at": None,
+            "stop_requested": False,
+            "stop_requested_at": None,
+            "iteration_dirs": False,
+            "stage_started_at": 1.5,
+        }), encoding="utf-8")
+
+        payload = collect_dashboard_data(proj)
+
+        assert payload["status"]["name"] == "dashboard-bare"
+        assert payload["runtime"]["runtime_ready"] is False
+        assert not (proj / ".sibyl" / "system.json").exists()
+        assert not (proj / "CLAUDE.md").exists()
 
 
 # ══════════════════════════════════════════════
@@ -1524,8 +1734,8 @@ class TestExperimentParallel:
         }))
         o.ws.write_file("exp/results/a_DONE", "{}")
         o.ws.write_file("exp/results/b_DONE", "{}")
-        Path(project_marker_file("test-proj", "exp_monitor")).write_text("{}", encoding="utf-8")
-        Path(project_marker_file("test-proj", "gpu_free")).write_text("{}", encoding="utf-8")
+        Path(project_marker_file(o.ws.root, "exp_monitor")).write_text("{}", encoding="utf-8")
+        Path(project_marker_file(o.ws.root, "gpu_free")).write_text("{}", encoding="utf-8")
 
         o.record_result("pilot_experiments")
 
@@ -1533,8 +1743,8 @@ class TestExperimentParallel:
         assert not o.ws.active_path("exp/gpu_progress.json").exists()
         assert not o.ws.active_path("exp/results/a_DONE").exists()
         assert not o.ws.active_path("exp/results/b_DONE").exists()
-        assert not Path(project_marker_file("test-proj", "exp_monitor")).exists()
-        assert not Path(project_marker_file("test-proj", "gpu_free")).exists()
+        assert not Path(project_marker_file(o.ws.root, "exp_monitor")).exists()
+        assert not Path(project_marker_file(o.ws.root, "gpu_free")).exists()
 
         action = o.get_next_action()
         assert action["action_type"] == "skills_parallel"
@@ -1630,7 +1840,7 @@ class TestExperimentParallel:
         assert "script" in monitor
         assert "task_1a" in monitor["script"]
         assert "task_1b" in monitor["script"]
-        assert monitor["marker_file"] == project_marker_file("test-proj", "exp_monitor")
+        assert monitor["marker_file"] == project_marker_file(o.ws.root, "exp_monitor")
         assert set(monitor["task_ids"]) == {"task_1a", "task_1b"}
         assert monitor["timeout_minutes"] >= 30  # at least 30 min
 
@@ -1663,9 +1873,9 @@ class TestGpuPollingIntegration:
     """Test GPU polling path in _action_experiment_batch."""
 
     @pytest.fixture(autouse=True)
-    def _clean_poll_marker(self):
+    def _clean_poll_marker(self, tmp_path):
         """Ensure project-scoped GPU poll markers do not leak between tests."""
-        marker = Path(project_marker_file("test-proj", "gpu_free"))
+        marker = Path(project_marker_file(tmp_path / "test-proj", "gpu_free"))
         marker.unlink(missing_ok=True)
         yield
         marker.unlink(missing_ok=True)
@@ -1677,7 +1887,7 @@ class TestGpuPollingIntegration:
         assert action["action_type"] == "gpu_poll"
         assert action["gpu_poll"] is not None
         assert action["gpu_poll"]["ssh_connection"] == "default"
-        assert action["gpu_poll"]["marker_file"] == project_marker_file("test-proj", "gpu_free")
+        assert action["gpu_poll"]["marker_file"] == project_marker_file(o.ws.root, "gpu_free")
         assert "nvidia-smi" in action["gpu_poll"]["query_cmd"]
         assert action["gpu_poll"]["max_gpus"] == 4
         assert "轮询" in action["description"]
@@ -1686,7 +1896,7 @@ class TestGpuPollingIntegration:
     def test_poll_enabled_with_result_uses_free_gpus(self, make_orchestrator, tmp_path):
         """When poll result exists, uses free GPUs for scheduling."""
         o = make_orchestrator(stage="pilot_experiments", gpu_poll_enabled=True)
-        marker = Path(project_marker_file("test-proj", "gpu_free"))
+        marker = Path(project_marker_file(o.ws.root, "gpu_free"))
         marker.write_text(json.dumps({"free_gpus": [0, 2], "poll_count": 3}))
         try:
             tasks = [
@@ -1706,7 +1916,7 @@ class TestGpuPollingIntegration:
     def test_poll_enabled_with_result_single_agent_fallback(self, make_orchestrator):
         """Poll result + no task plan → single agent with free GPUs."""
         o = make_orchestrator(stage="pilot_experiments", gpu_poll_enabled=True)
-        marker = Path(project_marker_file("test-proj", "gpu_free"))
+        marker = Path(project_marker_file(o.ws.root, "gpu_free"))
         marker.write_text(json.dumps({"free_gpus": [1, 3], "poll_count": 5}))
         try:
             action = o.get_next_action()
@@ -1723,7 +1933,7 @@ class TestGpuPollingIntegration:
             stage="pilot_experiments", gpu_poll_enabled=True,
             max_gpus=2,
         )
-        marker = Path(project_marker_file("test-proj", "gpu_free"))
+        marker = Path(project_marker_file(o.ws.root, "gpu_free"))
         # Poll found 4 free GPUs but max_gpus=2
         marker.write_text(json.dumps({"free_gpus": [2, 4, 5, 7], "poll_count": 2}))
         try:
@@ -1791,7 +2001,7 @@ class TestGpuPollingIntegration:
     def test_poll_result_empty_free_gpus_repolls(self, make_orchestrator):
         """If poll result has empty free_gpus list → re-poll."""
         o = make_orchestrator(stage="pilot_experiments", gpu_poll_enabled=True)
-        marker = Path(project_marker_file("test-proj", "gpu_free"))
+        marker = Path(project_marker_file(o.ws.root, "gpu_free"))
         marker.write_text(json.dumps({"free_gpus": [], "poll_count": 1}))
         try:
             action = o.get_next_action()
@@ -2043,6 +2253,8 @@ class TestDynamicGpuDispatch:
         assert result["reason"] == "not_experiment_stage"
 
     def test_dispatch_registers_new_running(self, make_orchestrator, capsys):
+        from sibyl.experiment_recovery import load_experiment_state
+
         o = make_orchestrator(stage="experiment_cycle", gpu_poll_enabled=False, max_gpus=4)
         tasks = [
             {"id": "a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
@@ -2059,6 +2271,9 @@ class TestDynamicGpuDispatch:
         # Verify b is now registered as running
         progress = json.loads(o.ws.read_file("exp/gpu_progress.json"))
         assert "b" in progress["running"]
+        state = load_experiment_state(o.ws.active_root)
+        assert state.tasks["b"]["status"] == "running"
+        assert state.tasks["b"]["pid_file"].endswith("/exp/results/b.pid")
 
     def test_dispatch_prefers_project_scoped_poll_marker(self, make_orchestrator, capsys):
         o = make_orchestrator(stage="pilot_experiments", gpu_poll_enabled=True, max_gpus=4)
@@ -2068,7 +2283,7 @@ class TestDynamicGpuDispatch:
         self._write_task_plan(o.ws, tasks)
         self._write_config(o.ws, gpu_poll_enabled=True, max_gpus=4)
         legacy_marker = Path("/tmp/sibyl_gpu_free.json")
-        scoped_marker = Path(project_marker_file("test-proj", "gpu_free"))
+        scoped_marker = Path(project_marker_file(o.ws.root, "gpu_free"))
         legacy_marker.write_text(json.dumps({"free_gpus": [7], "poll_count": 1}), encoding="utf-8")
         scoped_marker.write_text(json.dumps({"free_gpus": [2], "poll_count": 3}), encoding="utf-8")
         try:
@@ -2222,7 +2437,7 @@ class TestSelfHealMonitorScript:
 
         script = self_heal_monitor_script(workspace, interval_sec=60)
 
-        expected_status_file = project_marker_file(Path(workspace).name, "self_heal_monitor")
+        expected_status_file = project_marker_file(workspace, "self_heal_monitor")
         assert f"WORKSPACE={shlex.quote(workspace)}" in script
         assert f"STATUS_FILE={shlex.quote(expected_status_file)}" in script
         assert "-m sibyl.cli self-heal-scan" in script
@@ -2272,7 +2487,7 @@ class TestExperimentStatusDisplay:
     def test_status_with_workspace_prefers_project_scoped_monitor(self, make_orchestrator, capsys):
         o = make_orchestrator(stage="pilot_experiments", gpu_poll_enabled=False)
         legacy_marker = Path("/tmp/sibyl_exp_monitor.json")
-        scoped_marker = Path(project_marker_file("test-proj", "exp_monitor"))
+        scoped_marker = Path(project_marker_file(o.ws.root, "exp_monitor"))
         legacy_marker.write_text(json.dumps({"status": "timeout"}), encoding="utf-8")
         scoped_marker.write_text(
             json.dumps({"status": "monitoring", "elapsed_sec": 120, "completed": [], "pending": []}),
@@ -2344,8 +2559,8 @@ class TestExperimentStatusDisplay:
         cli_experiment_status()
         captured = capsys.readouterr()
         result = json.loads(captured.out)
-        assert result["status"] == "no_monitor"
-        assert "display" not in result
+        assert result["status"] == "workspace_required"
+        assert "workspace_path is required" in result["error"]
 
     def test_status_all_complete(self, make_orchestrator, capsys):
         o = make_orchestrator(stage="pilot_experiments", gpu_poll_enabled=False)
@@ -2373,7 +2588,7 @@ class TestExperimentStateIntegration:
             {"id": "b", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
         ]
         o.ws.write_file("plan/task_plan.json", json.dumps({"tasks": tasks}))
-        action = o.get_next_action()
+        o.get_next_action()
         state = load_experiment_state(o.ws.active_root)
         assert "a" in state.tasks
         assert "b" in state.tasks
@@ -2550,7 +2765,6 @@ class TestExperimentWaitAction:
     def test_empty_running_sources_returns_bash_advance(self, make_orchestrator):
         """Guard: if both experiment_state and gpu_progress show no running tasks,
         _experiment_wait_action should return a bash action (not infinite poll)."""
-        from sibyl.orchestrate import FarsOrchestrator
         o = make_orchestrator(stage="experiment_cycle", gpu_poll_enabled=False)
         tasks = [
             {"id": "a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10},
@@ -2597,7 +2811,8 @@ class TestExperimentWaitAction:
 class TestCliRecoverExperiments:
     def test_no_running_tasks(self, make_orchestrator):
         from sibyl.orchestrate import cli_recover_experiments
-        import io, sys
+        import io
+        import sys
         o = make_orchestrator(stage="pilot_experiments")
         captured = io.StringIO()
         sys.stdout = captured
@@ -2611,7 +2826,8 @@ class TestCliRecoverExperiments:
         from sibyl.experiment_recovery import (
             ExperimentState, register_task, save_experiment_state,
         )
-        import io, sys
+        import io
+        import sys
         o = make_orchestrator(stage="pilot_experiments")
         state = ExperimentState()
         register_task(state, "task_a", gpu_ids=[0])
@@ -2638,7 +2854,8 @@ class TestCliApplyRecovery:
             ExperimentState, register_task, save_experiment_state,
         )
         from sibyl.gpu_scheduler import register_running_tasks
-        import io, sys
+        import io
+        import sys
 
         o = make_orchestrator(stage="pilot_experiments")
         state = ExperimentState()
@@ -2718,7 +2935,8 @@ class TestCliExperimentStatusEnhanced:
             ExperimentState, register_task, save_experiment_state,
         )
         from sibyl.gpu_scheduler import register_running_tasks
-        import io, sys
+        import io
+        import sys
 
         o = make_orchestrator(stage="pilot_experiments")
         tasks = [{"id": "a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 10}]

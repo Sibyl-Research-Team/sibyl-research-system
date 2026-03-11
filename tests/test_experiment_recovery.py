@@ -2,14 +2,12 @@
 
 import json
 
-import pytest
-
 from sibyl.experiment_recovery import (
     ExperimentState,
-    RecoveryResult,
     load_experiment_state,
     save_experiment_state,
     register_task,
+    register_dispatched_tasks,
     generate_detection_script,
     parse_detection_output,
     get_running_tasks,
@@ -59,6 +57,25 @@ class TestExperimentStateIO:
         assert task["gpu_ids"] == [0, 1]
         assert task["pid_file"] == "/tmp/train.pid"
         assert "registered_at" in task
+
+    def test_register_dispatched_tasks_updates_both_state_files(self, tmp_path):
+        task_gpu_map = {"train_baseline": [0, 1], "train_ablation": [2]}
+
+        state = register_dispatched_tasks(
+            tmp_path,
+            task_gpu_map,
+            "/remote/projects/demo",
+        )
+
+        assert sorted(state.tasks) == ["train_ablation", "train_baseline"]
+        assert state.tasks["train_baseline"]["pid_file"] == "/remote/projects/demo/exp/results/train_baseline.pid"
+
+        saved = load_experiment_state(tmp_path)
+        assert sorted(saved.tasks) == ["train_ablation", "train_baseline"]
+
+        gp = _read_gpu_progress(tmp_path)
+        assert sorted(gp["running"]) == ["train_ablation", "train_baseline"]
+        assert gp["running"]["train_baseline"]["gpu_ids"] == [0, 1]
 
 
 class TestRecoveryScriptGeneration:

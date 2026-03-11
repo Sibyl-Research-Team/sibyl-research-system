@@ -1,12 +1,24 @@
 """Tests for support modules: config, context_builder, evolution, experiment_records, reflection."""
 
+import json
+
 import pytest
 
 from sibyl.config import Config
 from sibyl.context_builder import ContextBuilder, estimate_tokens, truncate_to_tokens
-from sibyl.evolution import EvolutionEngine, IssueCategory, normalize_action_plan
+from sibyl.evolution import (
+    EvolutionEngine,
+    IssueCategory,
+    ensure_workspace_snapshot,
+    normalize_action_plan,
+    sync_workspace_snapshot,
+    workspace_evolution_dir,
+)
 from sibyl.experiment_records import ExperimentDB, ExperimentRecord
+from sibyl.orchestration.config_helpers import write_project_config
+from sibyl.orchestration.prompt_loader import cli_write_ralph_prompt
 from sibyl.reflection import IterationLogger
+from sibyl.workspace import Workspace
 
 
 # ══════════════════════════════════════════════
@@ -17,7 +29,7 @@ class TestConfig:
     def test_defaults(self):
         c = Config()
         assert c.ssh_server == "default"
-        assert c.pilot_samples == 16
+        assert c.pilot_samples == 100
         assert c.idea_validation_rounds == 4
         assert c.max_iterations == 10
         assert c.max_iterations_cap == 100
@@ -44,6 +56,50 @@ lark_enabled: false
         assert c.writing_mode == "parallel"
         assert c.experiment_mode == "server_codex"
         assert c.lark_enabled is False
+
+    def test_from_yaml_resolves_workspaces_dir_relative_to_config(self, tmp_path):
+        config_dir = tmp_path / "configs"
+        config_dir.mkdir()
+        yaml_path = config_dir / "config.yaml"
+        yaml_path.write_text("workspaces_dir: ../custom-workspaces\n", encoding="utf-8")
+
+        c = Config.from_yaml(str(yaml_path))
+
+        assert c.workspaces_dir == (tmp_path / "custom-workspaces").resolve()
+
+    def test_from_yaml_resolves_orchestra_skills_dir_relative_to_config(self, tmp_path):
+        config_dir = tmp_path / "configs"
+        config_dir.mkdir()
+        yaml_path = config_dir / "config.yaml"
+        yaml_path.write_text("orchestra_skills_dir: ../skills\n", encoding="utf-8")
+
+        c = Config.from_yaml(str(yaml_path))
+
+        assert c.orchestra_skills_dir == str((tmp_path / "skills").resolve())
+
+    def test_from_yaml_chain_preserves_override_relative_base(self, tmp_path):
+        base_dir = tmp_path / "base"
+        override_dir = tmp_path / "override"
+        base_dir.mkdir()
+        override_dir.mkdir()
+        base_path = base_dir / "config.yaml"
+        override_path = override_dir / "config.yaml"
+        base_path.write_text("workspaces_dir: ../base-workspaces\n", encoding="utf-8")
+        override_path.write_text("workspaces_dir: ../override-workspaces\n", encoding="utf-8")
+
+        c = Config.from_yaml_chain(str(base_path), str(override_path))
+
+        assert c.workspaces_dir == (tmp_path / "override-workspaces").resolve()
+
+    def test_write_project_config_normalizes_workspaces_dir_to_workspace_parent(self, tmp_path):
+        cfg = Config(workspaces_dir=tmp_path / "some-other-root")
+        ws_root = tmp_path / "actual-workspaces"
+        ws = Workspace(ws_root, "demo-project")
+
+        write_project_config(ws, cfg)
+
+        stored = Config.from_yaml(str(ws.root / "config.yaml"))
+        assert stored.workspaces_dir == ws_root.resolve()
 
     def test_invalid_writing_mode(self, tmp_path):
         yaml_path = tmp_path / "bad.yaml"
@@ -195,6 +251,26 @@ class TestContextBuilder:
         cb.add("Capped", "x" * 10000, priority=9, max_tokens=10)
         result = cb.build()
         assert "[truncated]" in result
+
+
+class TestPromptLoader:
+    def test_cli_write_ralph_prompt_persists_workspace_scoped_state(self, tmp_path, capsys):
+        workspace = tmp_path / "demo-project"
+        workspace.mkdir(parents=True)
+
+        cli_write_ralph_prompt(str(workspace))
+        result = json.loads(capsys.readouterr().out)
+
+        prompt_path = workspace / ".claude" / "ralph-prompt.txt"
+        state_path = workspace / ".sibyl" / "project" / "ralph_loop_state.json"
+
+        assert prompt_path.exists()
+        assert state_path.exists()
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        assert result["workspace_path"] == str(workspace.resolve())
+        assert result["output_path"] == str(prompt_path.resolve())
+        assert state["workspace_path"] == str(workspace.resolve())
+        assert state["output_path"] == str(prompt_path.resolve())
 
 
 class TestTokenEstimation:
@@ -579,6 +655,39 @@ class TestEvolutionEngine:
         engine.record_outcome("proj", "reflection", [], 9.0)
         diag = engine.get_self_check_diagnostics("proj")
         assert diag is None
+
+    def test_workspace_snapshot_freezes_global_evolution_until_resync(self, tmp_path, monkeypatch):
+        monkeypatch.delenv("SIBYL_EVOLUTION_DIR", raising=False)
+        monkeypatch.setenv("SIBYL_STATE_DIR", str(tmp_path / "state"))
+
+        global_engine = EvolutionEngine()
+        for _ in range(3):
+            global_engine.record_outcome("proj", "reflection", ["SSH connection failed"], 5.0)
+        global_engine.run_cross_project_evolution()
+
+        workspace = tmp_path / "workspace-a"
+        workspace.mkdir(parents=True)
+        snapshot_dir = ensure_workspace_snapshot(workspace)
+        snapshot_engine = EvolutionEngine(snapshot_dir)
+        initial_overlays = snapshot_engine.get_overlay_content()
+        assert "experimenter" in initial_overlays
+
+        for _ in range(3):
+            global_engine.record_outcome(
+                "proj",
+                "reflection",
+                ["Paper writing clarity issues"],
+                6.0,
+            )
+        global_engine.run_cross_project_evolution()
+
+        frozen_overlays = EvolutionEngine(snapshot_dir).get_overlay_content()
+        assert "section_writer" not in frozen_overlays
+        assert frozen_overlays == initial_overlays
+
+        sync_workspace_snapshot(workspace)
+        refreshed_overlays = EvolutionEngine(workspace_evolution_dir(workspace)).get_overlay_content()
+        assert "section_writer" in refreshed_overlays
 
 
 # ══════════════════════════════════════════════
