@@ -25,9 +25,12 @@ GPU polling:
 import fcntl
 import json
 import re
+import time
 from collections import deque
 from contextlib import contextmanager
 from pathlib import Path
+
+from sibyl._paths import get_system_state_dir
 
 
 @contextmanager
@@ -45,6 +48,174 @@ def _progress_lock(workspace_root: Path):
     finally:
         fcntl.flock(lock_fd, fcntl.LOCK_UN)
         lock_fd.close()
+
+
+def _global_gpu_leases_path() -> Path:
+    """Return the repo-scoped global GPU lease file."""
+    state_dir = get_system_state_dir() / "scheduler"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    return state_dir / "gpu_leases.json"
+
+
+@contextmanager
+def _global_gpu_leases_lock():
+    """Serialize cross-project GPU lease updates."""
+    lock_path = _global_gpu_leases_path().with_suffix(".lock")
+    lock_fd = open(lock_path, "w", encoding="utf-8")
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        lock_fd.close()
+
+
+def _load_global_gpu_leases_unlocked() -> dict[str, dict]:
+    path = _global_gpu_leases_path()
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    leases = data.get("leases", data)
+    if not isinstance(leases, dict):
+        return {}
+    return {
+        str(gpu_id): lease
+        for gpu_id, lease in leases.items()
+        if isinstance(lease, dict)
+    }
+
+
+def _save_global_gpu_leases_unlocked(leases: dict[str, dict]) -> None:
+    path = _global_gpu_leases_path()
+    tmp = path.with_suffix(".tmp")
+    payload = {
+        "leases": leases,
+        "updated_at": time.time(),
+    }
+    tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _lease_entry_matches_running(gpu_id: int, entry: dict) -> bool:
+    workspace_raw = str(entry.get("workspace_root", "")).strip()
+    if not workspace_raw:
+        return False
+    workspace_root = Path(workspace_raw)
+    try:
+        _, _, running_map, _ = _load_progress(workspace_root)
+    except Exception:
+        return False
+    task_ids = set(entry.get("task_ids") or [])
+    for task_id, info in running_map.items():
+        if gpu_id not in info.get("gpu_ids", []):
+            continue
+        if not task_ids or task_id in task_ids:
+            return True
+    return False
+
+
+def _clean_global_gpu_leases_unlocked(leases: dict[str, dict]) -> dict[str, dict]:
+    cleaned: dict[str, dict] = {}
+    for gpu_key, entry in leases.items():
+        try:
+            gpu_id = int(gpu_key)
+        except (TypeError, ValueError):
+            continue
+        if _lease_entry_matches_running(gpu_id, entry):
+            cleaned[str(gpu_id)] = entry
+    return cleaned
+
+
+def sync_workspace_gpu_leases(
+    workspace_root: Path,
+    running_map: dict[str, dict] | None = None,
+) -> None:
+    """Synchronize global GPU leases with a workspace's local running map."""
+    workspace_root = Path(workspace_root).resolve()
+    if running_map is None:
+        _, _, running_map, _ = _load_progress(workspace_root)
+    normalized_running = running_map if isinstance(running_map, dict) else {}
+    workspace_key = str(workspace_root)
+    project_name = workspace_root.parent.name if workspace_root.name == "current" else workspace_root.name
+
+    with _global_gpu_leases_lock():
+        leases = _clean_global_gpu_leases_unlocked(_load_global_gpu_leases_unlocked())
+        leases = {
+            gpu_key: entry
+            for gpu_key, entry in leases.items()
+            if entry.get("workspace_root") != workspace_key
+        }
+        for task_id, info in normalized_running.items():
+            for gpu_id in info.get("gpu_ids", []):
+                leases[str(gpu_id)] = {
+                    "workspace_root": workspace_key,
+                    "project_name": project_name,
+                    "task_ids": [task_id],
+                    "claimed_at": time.time(),
+                }
+        _save_global_gpu_leases_unlocked(leases)
+
+
+def claim_next_batch(
+    workspace_root: Path,
+    candidate_gpu_ids: list[int],
+    mode: str = "PILOT",
+    *,
+    gpus_per_task: int = 1,
+    max_parallel_tasks: int | None = None,
+) -> dict | None:
+    """Atomically select and reserve the next batch of GPUs for a workspace."""
+    workspace_root = Path(workspace_root).resolve()
+    workspace_key = str(workspace_root)
+
+    with _global_gpu_leases_lock():
+        leases = _clean_global_gpu_leases_unlocked(_load_global_gpu_leases_unlocked())
+        occupied_elsewhere = {
+            int(gpu_key)
+            for gpu_key, entry in leases.items()
+            if entry.get("workspace_root") != workspace_key
+        }
+        available_gpu_ids = [
+            gpu_id for gpu_id in candidate_gpu_ids
+            if gpu_id not in occupied_elsewhere
+        ]
+        info = get_batch_info(
+            workspace_root,
+            available_gpu_ids,
+            mode,
+            gpus_per_task=gpus_per_task,
+        )
+        if info is None:
+            _save_global_gpu_leases_unlocked(leases)
+            return None
+
+        batch = info["batch"]
+        if max_parallel_tasks is not None:
+            batch = batch[:max_parallel_tasks]
+        info = dict(info)
+        info["batch"] = batch
+        info["candidate_gpu_ids"] = available_gpu_ids
+        if not batch:
+            _save_global_gpu_leases_unlocked(leases)
+            return info
+
+        project_name = workspace_root.parent.name if workspace_root.name == "current" else workspace_root.name
+        claimed_at = time.time()
+        for assignment in batch:
+            for gpu_id in assignment["gpu_ids"]:
+                leases[str(gpu_id)] = {
+                    "workspace_root": workspace_key,
+                    "project_name": project_name,
+                    "task_ids": assignment["task_ids"],
+                    "claimed_at": claimed_at,
+                }
+        _save_global_gpu_leases_unlocked(leases)
+        return info
 
 
 # Required fields that planner must provide for each task
@@ -255,9 +426,12 @@ def register_running_tasks(workspace_root: Path, task_gpu_map: dict[str, list[in
 
         if "running" not in progress:
             progress["running"] = {}
+        progress.setdefault("failed", [])
 
         now = datetime.datetime.now().isoformat()
         for task_id, gpu_ids in task_gpu_map.items():
+            if task_id in progress["failed"]:
+                progress["failed"] = [item for item in progress["failed"] if item != task_id]
             progress["running"][task_id] = {
                 "gpu_ids": gpu_ids,
                 "started_at": now,
@@ -265,6 +439,7 @@ def register_running_tasks(workspace_root: Path, task_gpu_map: dict[str, list[in
 
         with open(progress_path, "w", encoding="utf-8") as f:
             json.dump(progress, f, indent=2)
+    sync_workspace_gpu_leases(workspace_root, progress.get("running", {}))
 
 
 def unregister_running_task(workspace_root: Path, task_id: str) -> None:
@@ -288,6 +463,7 @@ def unregister_running_task(workspace_root: Path, task_id: str) -> None:
             progress["running"] = running
             with open(progress_path, "w", encoding="utf-8") as f:
                 json.dump(progress, f, indent=2)
+    sync_workspace_gpu_leases(workspace_root)
 
 
 def get_running_gpu_ids(workspace_root: Path) -> list[int]:
@@ -502,6 +678,62 @@ def parse_free_gpus(
     if max_gpus > 0:
         free = free[:max_gpus]
     return free
+
+
+def parse_gpu_snapshot(nvidia_smi_output: str) -> list[dict]:
+    """Parse nvidia-smi CSV output into structured per-GPU memory snapshots."""
+    snapshot: list[dict] = []
+    for line in nvidia_smi_output.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        parts = re.split(r"[,\s]+", line)
+        if len(parts) < 2:
+            continue
+        try:
+            gpu_id = int(parts[0])
+            mem_used = int(float(parts[1]))
+        except (TypeError, ValueError, IndexError):
+            continue
+
+        entry = {
+            "gpu_id": gpu_id,
+            "memory_used_mb": mem_used,
+        }
+        if len(parts) >= 3:
+            try:
+                mem_total = int(float(parts[2]))
+            except (TypeError, ValueError, IndexError):
+                mem_total = 0
+            if mem_total > 0:
+                entry["memory_total_mb"] = mem_total
+                entry["memory_used_pct"] = round((mem_used / mem_total) * 100.0, 2)
+        snapshot.append(entry)
+    return snapshot
+
+
+def write_poll_result(
+    marker_file: str,
+    *,
+    free_gpus: list[int],
+    poll_count: int = 0,
+    snapshot: list[dict] | None = None,
+    source: str = "",
+) -> dict:
+    """Persist free GPU polling results for schedulers and supervisors."""
+    path = Path(marker_file)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "free_gpus": list(free_gpus),
+        "poll_count": poll_count,
+        "snapshot": list(snapshot or []),
+        "source": source,
+        "updated_at": time.time(),
+    }
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    tmp.replace(path)
+    return payload
 
 
 def gpu_poll_wait_script(

@@ -131,9 +131,9 @@ Auxiliary commands:
         else:
             # Web server mode
             from sibyl.dashboard.server import run
-            cfg = Config()
-            if hasattr(args, "config") and args.config:
-                cfg = Config.from_yaml(args.config)
+            from sibyl.orchestration.config_helpers import load_effective_config
+
+            cfg = load_effective_config(config_path=getattr(args, "config", None))
             run(port=args.port, host=args.host, config=cfg,
                 production=getattr(args, "production", False))
         return
@@ -165,9 +165,9 @@ Auxiliary commands:
             raise SystemExit("Provide a workspace path or pass --all.")
         return
 
-    config = Config()
-    if hasattr(args, "config") and args.config:
-        config = Config.from_yaml(args.config)
+    from sibyl.orchestration.config_helpers import load_effective_config
+
+    config = load_effective_config(config_path=getattr(args, "config", None))
 
     if args.command == "status":
         _status_dashboard(config, getattr(args, "project", None))
@@ -194,7 +194,7 @@ def _status_dashboard(config: Config, project: str | None = None):
         if project and d.name != project:
             continue
         try:
-            ws = Workspace(config.workspaces_dir, d.name)
+            ws = Workspace.open_existing(config.workspaces_dir, d.name)
             meta = ws.get_project_metadata()
             meta["topic"] = ws.read_file("topic.txt") or ""
             projects.append(meta)

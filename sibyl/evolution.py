@@ -2,17 +2,19 @@
 
 Learns from cross-project experience to improve prompts and workflows.
 """
+import fcntl
 import hashlib
 import json
 import math
-import os
 import re
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, asdict, field
 from enum import Enum
 from pathlib import Path
 
 from sibyl._paths import SYSTEM_EVOLUTION_DIR, get_system_evolution_dir
+from sibyl.orchestration.workspace_paths import resolve_workspace_root
 
 
 class IssueCategory(str, Enum):
@@ -409,21 +411,116 @@ def _is_synthetic_test_record(record: dict) -> bool:
     )
 
 
+def workspace_evolution_dir(workspace_path: str | Path) -> Path:
+    """Return the per-workspace frozen evolution snapshot directory."""
+    workspace_root = resolve_workspace_root(workspace_path)
+    return workspace_root / ".sibyl" / "project" / "evolution"
+
+
+def _write_text_atomic(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(f"{path.suffix}.tmp")
+    tmp.write_text(content, encoding="utf-8")
+    tmp.replace(path)
+
+
+def _write_json_atomic(path: Path, payload: object) -> None:
+    _write_text_atomic(
+        path,
+        json.dumps(payload, indent=2, ensure_ascii=False),
+    )
+
+
+@contextmanager
+def _evolution_lock(evolution_dir: Path):
+    """Serialize writes to a specific evolution directory."""
+    evolution_dir.mkdir(parents=True, exist_ok=True)
+    lock_path = evolution_dir / ".evolution.lock"
+    with open(lock_path, "w", encoding="utf-8") as lock_fd:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+
+
+def sync_workspace_snapshot(workspace_path: str | Path) -> Path:
+    """Freeze the current global evolution view into a workspace-private snapshot."""
+    workspace_root = resolve_workspace_root(workspace_path)
+    snapshot_dir = workspace_evolution_dir(workspace_root)
+    global_dir = get_system_evolution_dir()
+    lessons_dir = snapshot_dir / "lessons"
+    lessons_dir.mkdir(parents=True, exist_ok=True)
+
+    tracked_files = (
+        "outcomes.jsonl",
+        "insights.json",
+        "digest.json",
+        "global_lessons.md",
+    )
+
+    with _evolution_lock(global_dir):
+        with _evolution_lock(snapshot_dir):
+            for filename in tracked_files:
+                source_path = global_dir / filename
+                target_path = snapshot_dir / filename
+                if source_path.exists():
+                    _write_text_atomic(
+                        target_path,
+                        source_path.read_text(encoding="utf-8"),
+                    )
+                else:
+                    target_path.unlink(missing_ok=True)
+
+            source_lessons_dir = global_dir / "lessons"
+            seen_lessons: set[str] = set()
+            if source_lessons_dir.exists():
+                for source_path in sorted(source_lessons_dir.glob("*.md")):
+                    seen_lessons.add(source_path.name)
+                    _write_text_atomic(
+                        lessons_dir / source_path.name,
+                        source_path.read_text(encoding="utf-8"),
+                    )
+
+            for stale_path in lessons_dir.glob("*.md"):
+                if stale_path.name not in seen_lessons:
+                    stale_path.unlink()
+
+    _write_json_atomic(
+        snapshot_dir / "snapshot.json",
+        {
+            "workspace_root": str(workspace_root),
+            "source_evolution_dir": str(global_dir),
+            "synced_at": time.time(),
+        },
+    )
+    return snapshot_dir
+
+
+def ensure_workspace_snapshot(workspace_path: str | Path) -> Path:
+    """Initialize a workspace snapshot once and keep it frozen thereafter."""
+    snapshot_dir = workspace_evolution_dir(workspace_path)
+    if not (snapshot_dir / "snapshot.json").exists():
+        return sync_workspace_snapshot(workspace_path)
+    snapshot_dir.mkdir(parents=True, exist_ok=True)
+    return snapshot_dir
+
+
 class EvolutionEngine:
     """Cross-project experience learning and prompt improvement."""
 
     EVOLUTION_DIR = SYSTEM_EVOLUTION_DIR
 
-    def __init__(self):
-        evolution_dir = get_system_evolution_dir()
-        if type(self).EVOLUTION_DIR != SYSTEM_EVOLUTION_DIR:
-            evolution_dir = Path(type(self).EVOLUTION_DIR)
-        self.EVOLUTION_DIR = evolution_dir
+    def __init__(self, evolution_dir: str | Path | None = None):
+        if evolution_dir is None:
+            evolution_dir = get_system_evolution_dir()
+            if type(self).EVOLUTION_DIR != SYSTEM_EVOLUTION_DIR:
+                evolution_dir = Path(type(self).EVOLUTION_DIR)
+        self.EVOLUTION_DIR = Path(evolution_dir).expanduser().resolve()
         self.EVOLUTION_DIR.mkdir(parents=True, exist_ok=True)
         self.outcomes_path = self.EVOLUTION_DIR / "outcomes.jsonl"
         self.insights_path = self.EVOLUTION_DIR / "insights.json"
         self.digest_path = self.EVOLUTION_DIR / "digest.json"
-
 
     def record_outcome(self, project: str, stage: str,
                        issues: list[str], score: float, notes: str = "",
@@ -440,8 +537,9 @@ class EvolutionEngine:
             classified_issues=classified_issues or [],
             success_patterns=success_patterns or [],
         )
-        with open(self.outcomes_path, "a", encoding="utf-8") as f:
-            f.write(json.dumps(asdict(record), ensure_ascii=False) + "\n")
+        with _evolution_lock(self.EVOLUTION_DIR):
+            with open(self.outcomes_path, "a", encoding="utf-8") as f:
+                f.write(json.dumps(asdict(record), ensure_ascii=False) + "\n")
 
     def get_quality_trend(self, project: str | None = None) -> list[dict]:
         """Get quality score trend over time."""
@@ -463,7 +561,7 @@ class EvolutionEngine:
                     record = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if self.EVOLUTION_DIR == SYSTEM_EVOLUTION_DIR and _is_synthetic_test_record(record):
+                if self.EVOLUTION_DIR == SYSTEM_EVOLUTION_DIR.resolve() and _is_synthetic_test_record(record):
                     continue
                 normalized_issues: list[dict] = []
                 for issue in record.get("classified_issues", []):
@@ -488,20 +586,10 @@ class EvolutionEngine:
                 records.append(record)
         return records
 
-    def build_digest(self) -> list[DigestEntry]:
-        """Build aggregated digest from raw outcomes. Cached via file mtime."""
-        outcomes = self._load_outcomes()
+    def _build_digest_from_outcomes(self, outcomes: list[dict]) -> list[DigestEntry]:
+        """Build aggregated digest entries from normalized outcomes."""
         if not outcomes:
             return []
-
-        # Check cache freshness
-        if self.digest_path.exists() and self.outcomes_path.exists():
-            if os.path.getmtime(self.digest_path) >= os.path.getmtime(self.outcomes_path):
-                try:
-                    data = json.loads(self.digest_path.read_text(encoding="utf-8"))
-                    return [DigestEntry(**d) for d in data]
-                except (json.JSONDecodeError, TypeError):
-                    pass
 
         # Aggregate by normalized issue key to reduce fragmentation when
         # descriptions drift slightly across iterations.
@@ -579,16 +667,27 @@ class EvolutionEngine:
                 cat_successes, key=lambda s: -success_counts[s]
             )[:3]
 
-        # Save digest
-        self.digest_path.write_text(
-            json.dumps([asdict(e) for e in entries], indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
         return entries
 
-    def analyze_patterns(self) -> list[EvolutionInsight]:
-        """Analyze recorded outcomes for recurring patterns with time decay and effectiveness."""
-        digest = self.build_digest()
+    def _write_digest_cache(self, digest: list[DigestEntry]) -> None:
+        _write_json_atomic(
+            self.digest_path,
+            [asdict(entry) for entry in digest],
+        )
+
+    def build_digest(self) -> list[DigestEntry]:
+        """Build aggregated digest from raw outcomes."""
+        with _evolution_lock(self.EVOLUTION_DIR):
+            outcomes = self._load_outcomes()
+            digest = self._build_digest_from_outcomes(outcomes)
+            self._write_digest_cache(digest)
+        return digest
+
+    def _analyze_patterns_from_digest(
+        self,
+        digest: list[DigestEntry],
+    ) -> list[EvolutionInsight]:
+        """Analyze recurring patterns from digest entries."""
         if not digest:
             return []
 
@@ -616,7 +715,16 @@ class EvolutionEngine:
                     effectiveness_delta=entry.effectiveness_delta,
                 ))
 
-        self._save_insights(insights)
+        return insights
+
+    def analyze_patterns(self) -> list[EvolutionInsight]:
+        """Analyze recorded outcomes for recurring patterns with time decay and effectiveness."""
+        with _evolution_lock(self.EVOLUTION_DIR):
+            outcomes = self._load_outcomes()
+            digest = self._build_digest_from_outcomes(outcomes)
+            insights = self._analyze_patterns_from_digest(digest)
+            self._write_digest_cache(digest)
+            self._save_insights(insights)
         return insights
 
     def filter_relevant_lessons(self, agent_name: str, topic: str = "",
@@ -720,29 +828,25 @@ class EvolutionEngine:
 
         return "\n".join(lines) + "\n"
 
-    def generate_lessons_overlay(self) -> dict[str, str]:
-        """Generate per-agent overlay files from accumulated insights.
-
-        Routes lessons to actual agent prompt names via CATEGORY_TO_AGENTS mapping.
-        Includes effectiveness labels and success patterns.
-        Returns dict mapping agent_name -> overlay content written.
-        """
-        insights = self.analyze_patterns()
+    def _write_lessons_overlay(
+        self,
+        *,
+        digest: list[DigestEntry],
+        insights: list[EvolutionInsight],
+        outcomes: list[dict],
+    ) -> dict[str, str]:
+        """Write overlay markdown files from computed digest/insights state."""
         if not insights:
             self.reset_overlays()
             return {}
 
-        digest = self.build_digest()
-        # Collect success patterns from all outcomes
-        outcomes = self._load_outcomes()
         all_success: dict[str, int] = {}
-        for o in outcomes:
-            for sp in o.get("success_patterns", []):
+        for outcome in outcomes:
+            for sp in outcome.get("success_patterns", []):
                 key = sp.strip()
                 if key:
                     all_success[key] = all_success.get(key, 0) + 1
 
-        # Group insights by affected agent
         agent_insights: dict[str, list[EvolutionInsight]] = {}
         for insight in insights:
             for agent in insight.affected_agents:
@@ -757,8 +861,6 @@ class EvolutionEngine:
 
         written = {}
         for agent_name, insights_list in agent_insights.items():
-            # Sort: effective first, then by severity, then by weighted frequency
-            # Ineffective lessons go to the bottom
             insights_list.sort(
                 key=lambda i: (
                     2 if i.effectiveness == "ineffective" else (0 if i.effectiveness == "effective" else 1),
@@ -773,7 +875,7 @@ class EvolutionEngine:
                 "",
                 "## 需要注意",
             ]
-            for ins in insights_list[:10]:  # cap at 10 lessons per agent
+            for ins in insights_list[:10]:
                 sev = ins.severity.upper()
                 cat = ins.category.upper() if ins.category else "ANALYSIS"
                 eff = f"[{ins.effectiveness}]" if ins.effectiveness != "unverified" else ""
@@ -783,11 +885,7 @@ class EvolutionEngine:
                 )
                 lines.append(f"  建议: {ins.suggestion}")
 
-            # Add success patterns section filtered to the agent's categories.
-            agent_cats = set()
-            for ins in insights_list:
-                if ins.category:
-                    agent_cats.add(ins.category)
+            agent_cats = {ins.category for ins in insights_list if ins.category}
             relevant_successes: set[str] = set()
             for entry in digest:
                 if entry.category not in agent_cats:
@@ -820,10 +918,29 @@ class EvolutionEngine:
 
             content = "\n".join(lines) + "\n"
             overlay_path = lessons_dir / f"{agent_name}.md"
-            overlay_path.write_text(content, encoding="utf-8")
+            _write_text_atomic(overlay_path, content)
             written[agent_name] = content
 
         return written
+
+    def generate_lessons_overlay(self) -> dict[str, str]:
+        """Generate per-agent overlay files from accumulated insights.
+
+        Routes lessons to actual agent prompt names via CATEGORY_TO_AGENTS mapping.
+        Includes effectiveness labels and success patterns.
+        Returns dict mapping agent_name -> overlay content written.
+        """
+        with _evolution_lock(self.EVOLUTION_DIR):
+            outcomes = self._load_outcomes()
+            digest = self._build_digest_from_outcomes(outcomes)
+            insights = self._analyze_patterns_from_digest(digest)
+            self._write_digest_cache(digest)
+            self._save_insights(insights)
+            return self._write_lessons_overlay(
+                digest=digest,
+                insights=insights,
+                outcomes=outcomes,
+            )
 
     def get_self_check_diagnostics(self, project: str) -> dict | None:
         """Auto-evaluate system health after each iteration.
@@ -896,45 +1013,55 @@ class EvolutionEngine:
 
         Triggered manually via `sibyl evolve --apply` or `/sibyl-research:evolve`.
         """
-        written = self.generate_lessons_overlay()
-
-        insights = self.analyze_patterns()
-        if insights:
-            summary_lines = ["# 西比拉全局经验总结 (自动生成)\n"]
-            by_cat: dict[str, list[EvolutionInsight]] = {}
-            for ins in insights:
-                by_cat.setdefault(ins.category or "analysis", []).append(ins)
-
-            for cat, cat_insights in sorted(by_cat.items()):
-                summary_lines.append(f"\n## {cat.upper()} 类问题\n")
-                agents_str = ", ".join(CATEGORY_TO_AGENTS.get(cat, []))
-                if agents_str:
-                    summary_lines.append(f"影响 agent: {agents_str}\n")
-                for ins in sorted(cat_insights, key=lambda i: -i.weighted_frequency):
-                    eff_tag = f" [{ins.effectiveness}]" if ins.effectiveness != "unverified" else ""
-                    summary_lines.append(
-                        f"- [{ins.severity.upper()}]{eff_tag} {ins.pattern} "
-                        f"(出现 {ins.frequency} 次, 权重 {ins.weighted_frequency})"
-                    )
-                    summary_lines.append(f"  建议: {ins.suggestion}")
-
-            # Add global success patterns
+        with _evolution_lock(self.EVOLUTION_DIR):
             outcomes = self._load_outcomes()
-            all_success: dict[str, int] = {}
-            for o in outcomes:
-                for sp in o.get("success_patterns", []):
-                    key = sp.strip()
-                    if key:
-                        all_success[key] = all_success.get(key, 0) + 1
-            if all_success:
-                summary_lines.append("\n## 成功模式 (继续保持)\n")
-                for sp, count in sorted(all_success.items(), key=lambda x: -x[1])[:10]:
-                    summary_lines.append(f"- {sp} (出现 {count} 次)")
+            digest = self._build_digest_from_outcomes(outcomes)
+            insights = self._analyze_patterns_from_digest(digest)
+            self._write_digest_cache(digest)
+            self._save_insights(insights)
 
-            global_path = self.EVOLUTION_DIR / "global_lessons.md"
-            global_path.write_text("\n".join(summary_lines) + "\n", encoding="utf-8")
+            written = self._write_lessons_overlay(
+                digest=digest,
+                insights=insights,
+                outcomes=outcomes,
+            )
 
-        return written
+            if insights:
+                summary_lines = ["# 西比拉全局经验总结 (自动生成)\n"]
+                by_cat: dict[str, list[EvolutionInsight]] = {}
+                for ins in insights:
+                    by_cat.setdefault(ins.category or "analysis", []).append(ins)
+
+                for cat, cat_insights in sorted(by_cat.items()):
+                    summary_lines.append(f"\n## {cat.upper()} 类问题\n")
+                    agents_str = ", ".join(CATEGORY_TO_AGENTS.get(cat, []))
+                    if agents_str:
+                        summary_lines.append(f"影响 agent: {agents_str}\n")
+                    for ins in sorted(cat_insights, key=lambda i: -i.weighted_frequency):
+                        eff_tag = f" [{ins.effectiveness}]" if ins.effectiveness != "unverified" else ""
+                        summary_lines.append(
+                            f"- [{ins.severity.upper()}]{eff_tag} {ins.pattern} "
+                            f"(出现 {ins.frequency} 次, 权重 {ins.weighted_frequency})"
+                        )
+                        summary_lines.append(f"  建议: {ins.suggestion}")
+
+                all_success: dict[str, int] = {}
+                for outcome in outcomes:
+                    for sp in outcome.get("success_patterns", []):
+                        key = sp.strip()
+                        if key:
+                            all_success[key] = all_success.get(key, 0) + 1
+                if all_success:
+                    summary_lines.append("\n## 成功模式 (继续保持)\n")
+                    for sp, count in sorted(all_success.items(), key=lambda x: -x[1])[:10]:
+                        summary_lines.append(f"- {sp} (出现 {count} 次)")
+
+                global_path = self.EVOLUTION_DIR / "global_lessons.md"
+                _write_text_atomic(global_path, "\n".join(summary_lines) + "\n")
+            else:
+                (self.EVOLUTION_DIR / "global_lessons.md").unlink(missing_ok=True)
+
+            return written
 
     def get_overlay_content(self) -> dict[str, str]:
         """Get all current overlay file contents. For CLI display."""
@@ -958,7 +1085,4 @@ class EvolutionEngine:
 
     def _save_insights(self, insights: list[EvolutionInsight]):
         data = [asdict(i) for i in insights]
-        self.insights_path.write_text(
-            json.dumps(data, indent=2, ensure_ascii=False),
-            encoding="utf-8",
-        )
+        _write_json_atomic(self.insights_path, data)

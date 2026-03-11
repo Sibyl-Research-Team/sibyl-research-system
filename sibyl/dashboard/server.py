@@ -19,6 +19,7 @@ from flask import Flask, jsonify, request, send_file, abort
 
 from sibyl._paths import REPO_ROOT, get_system_evolution_dir
 from sibyl.config import Config
+from sibyl.orchestration.dashboard_data import collect_dashboard_data
 
 # Ensure common types are registered
 mimetypes.add_type("application/pdf", ".pdf")
@@ -36,7 +37,10 @@ def _make_auth_token(key: str) -> str:
 
 def create_app(config: Config | None = None) -> Flask:
     """Create and configure the Flask app."""
-    config = config or Config()
+    if config is None:
+        from sibyl.orchestration.config_helpers import load_effective_config
+
+        config = load_effective_config()
     static_dir = Path(__file__).parent / "static"
 
     app = Flask(
@@ -59,7 +63,7 @@ def create_app(config: Config | None = None) -> Flask:
             abort(403, description="Path traversal not allowed")
         if not project_root.is_dir() or not (project_root / "status.json").exists():
             abort(404, description=f"Project not found: {project_name}")
-        return Workspace(ws_dir, project_name)
+        return Workspace.open_existing(ws_dir, project_name)
 
     def _safe_resolve(ws_root: Path, rel_path: str) -> Path:
         """Resolve a relative path within workspace, block traversal."""
@@ -197,7 +201,6 @@ def create_app(config: Config | None = None) -> Flask:
     def project_dashboard(project_name: str):
         events_tail = request.args.get("events_tail", 50, type=int)
         ws = _get_workspace(project_name)
-        from sibyl.orchestrate import collect_dashboard_data
 
         dashboard = collect_dashboard_data(ws.root, events_tail=events_tail)
         return app.response_class(
@@ -384,7 +387,7 @@ def run(port: int = 7654, host: str = "127.0.0.1",
     ws_dir = (config or Config()).workspaces_dir.resolve()
     print(f"\n  Sibyl Dashboard running at http://{host}:{port}")
     print(f"  Serving workspaces from: {ws_dir}")
-    print(f"  Press Ctrl+C to stop.\n")
+    print("  Press Ctrl+C to stop.\n")
 
     if production:
         import gunicorn.app.base

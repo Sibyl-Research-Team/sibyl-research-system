@@ -176,6 +176,37 @@ class Workspace:
         self._init_iteration_dirs = iteration_dirs
         self._init_dirs()
 
+    @classmethod
+    def open_existing(
+        cls,
+        base_dir: Path | str,
+        project_name: str,
+        iteration_dirs: bool | None = None,
+    ) -> "Workspace":
+        """Open an existing workspace without mutating runtime assets."""
+        root = Path(base_dir) / project_name
+        if not root.is_dir():
+            raise FileNotFoundError(f"Workspace not found: {root}")
+
+        status_path = root / "status.json"
+        if not status_path.exists():
+            raise FileNotFoundError(f"Workspace missing status.json: {root}")
+
+        inferred_iteration_dirs = iteration_dirs
+        if inferred_iteration_dirs is None:
+            try:
+                raw_status = json.loads(status_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                inferred_iteration_dirs = False
+            else:
+                inferred_iteration_dirs = workspace_status_from_data(raw_status).iteration_dirs
+
+        ws = cls.__new__(cls)
+        ws.root = root
+        ws.name = project_name
+        ws._init_iteration_dirs = bool(inferred_iteration_dirs)
+        return ws
+
     def _ensure_standard_dirs(self, base_dir: Path):
         for d in self._STANDARD_DIRS:
             (base_dir / d).mkdir(parents=True, exist_ok=True)

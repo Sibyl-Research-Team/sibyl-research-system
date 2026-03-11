@@ -67,6 +67,24 @@ def register_task(
     }
 
 
+def register_dispatched_tasks(
+    workspace_root: Path,
+    task_gpu_map: dict[str, list[int]],
+    remote_project_dir: str,
+) -> ExperimentState:
+    """Register dispatched tasks in both experiment_state and gpu_progress."""
+    from sibyl.gpu_scheduler import register_running_tasks
+
+    state = load_experiment_state(workspace_root)
+    for task_id, gpu_ids in task_gpu_map.items():
+        pid_file = f"{remote_project_dir}/exp/results/{task_id}.pid"
+        register_task(state, task_id, gpu_ids=gpu_ids, pid_file=pid_file)
+
+    save_experiment_state(workspace_root, state)
+    register_running_tasks(workspace_root, task_gpu_map)
+    return state
+
+
 # ---------------------------------------------------------------------------
 # SSH Batch Detection Script
 # ---------------------------------------------------------------------------
@@ -296,6 +314,9 @@ def sync_to_gpu_progress(workspace_root: Path, state: ExperimentState) -> None:
                 }
 
     _save_gpu_progress(workspace_root, gp)
+    from sibyl.gpu_scheduler import sync_workspace_gpu_leases
+
+    sync_workspace_gpu_leases(workspace_root, gp.get("running", {}))
 
 
 def migrate_from_gpu_progress(workspace_root: Path) -> ExperimentState:
