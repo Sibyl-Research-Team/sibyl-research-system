@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import time
 from collections.abc import Callable
@@ -11,6 +12,7 @@ from typing import Any
 
 from sibyl.event_logger import EventLogger
 
+from .config_helpers import load_effective_config
 from .workspace_paths import (
     project_marker_file,
     resolve_active_workspace_path,
@@ -18,26 +20,60 @@ from .workspace_paths import (
 )
 
 
-def cli_experiment_status(workspace_path: str = "") -> None:
-    """Check experiment status with rich progress information."""
-    import datetime as dt
+_EXPERIMENT_SUPERVISOR_STATE = "exp/experiment_supervisor_state.json"
 
+
+def _experiment_supervisor_state_path(workspace_path: str | Path) -> Path:
+    active_root = resolve_active_workspace_path(workspace_path)
+    return active_root / _EXPERIMENT_SUPERVISOR_STATE
+
+
+def _load_json(path: Path) -> dict:
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _write_json_atomic(path: Path, payload: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(path)
+
+
+def _parse_iso_datetime(value: object) -> dt.datetime | None:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        return dt.datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
+def _build_experiment_status_payload(workspace_path: str) -> dict:
+    """Compute a rich experiment status snapshot for UI and supervisors."""
     from sibyl.experiment_recovery import load_experiment_state
-    from sibyl.gpu_scheduler import _load_progress, read_monitor_result
+    from sibyl.gpu_scheduler import _load_progress, read_monitor_result, read_poll_result
 
     if not workspace_path:
-        result = {
+        return {
             "status": "workspace_required",
             "error": "workspace_path is required for multi-project isolated experiment status",
         }
-        print(json.dumps(result, indent=2, ensure_ascii=False))
-        return
 
     project_root = resolve_workspace_root(workspace_path)
     active_root = resolve_active_workspace_path(workspace_path)
-    monitor = read_monitor_result(project_marker_file(project_root, "exp_monitor"))
+    monitor_path = Path(project_marker_file(project_root, "exp_monitor"))
+    gpu_poll_path = Path(project_marker_file(project_root, "gpu_free"))
+
+    monitor = read_monitor_result(str(monitor_path))
     result = dict(monitor) if monitor else {"status": "no_monitor"}
     completed, running_ids, running_map, timings = _load_progress(active_root)
+    _ = timings
 
     task_plan_path = active_root / "plan" / "task_plan.json"
     total_tasks = 0
@@ -54,38 +90,61 @@ def cli_experiment_status(workspace_path: str = "") -> None:
             pass
 
     pending_count = max(0, total_tasks - len(completed) - len(running_ids))
-    elapsed_sec = result.get("elapsed_sec", 0)
+    elapsed_sec = int(result.get("elapsed_sec", 0) or 0)
     elapsed_min = elapsed_sec // 60 if elapsed_sec else 0
 
+    exp_state = load_experiment_state(active_root)
+    monitor_progress = result.get("progress") if isinstance(result.get("progress"), dict) else {}
+    task_progress = dict(monitor_progress)
+    for task_id, task in exp_state.tasks.items():
+        if task.get("progress"):
+            task_progress[task_id] = task["progress"]
+
     max_remaining_sec = 0
-    task_lines = []
+    task_lines: list[str] = []
+    running_tasks_detail: list[dict] = []
     for task_id, info in running_map.items():
         gpu_ids = info.get("gpu_ids", [])
         name = task_names.get(task_id, task_id)
         started_at = info.get("started_at", "")
         task_elapsed_min = 0
-        if started_at:
-            try:
-                start_dt = dt.datetime.fromisoformat(started_at)
-                task_elapsed_min = int((dt.datetime.now() - start_dt).total_seconds() / 60)
-            except (ValueError, TypeError):
-                pass
+        start_dt = _parse_iso_datetime(started_at)
+        if start_dt is not None:
+            task_elapsed_min = int((dt.datetime.now() - start_dt).total_seconds() / 60)
         estimate = task_estimates.get(task_id, 0)
+        remaining_sec = 0
         if estimate > 0:
-            remaining = max(0, estimate * 60 - task_elapsed_min * 60)
-            max_remaining_sec = max(max_remaining_sec, remaining)
+            remaining_sec = max(0, estimate * 60 - task_elapsed_min * 60)
+            max_remaining_sec = max(max_remaining_sec, remaining_sec)
 
-        gpu_str = ",".join(str(gpu_id) for gpu_id in gpu_ids)
-        task_lines.append(f"    {name} -> GPU[{gpu_str}] ({task_elapsed_min}min)")
+        progress = task_progress.get(task_id, {}) if isinstance(task_progress.get(task_id), dict) else {}
+        progress_updated_at = progress.get("updated_at", "")
+        progress_dt = _parse_iso_datetime(progress_updated_at)
+        progress_age_sec = (
+            int((dt.datetime.now() - progress_dt).total_seconds())
+            if progress_dt is not None
+            else None
+        )
+
+        gpu_str = ",".join(str(gpu_id) for gpu_id in gpu_ids) if gpu_ids else "?"
+        age_suffix = ""
+        if progress_age_sec is not None:
+            age_suffix = f", progress {max(0, progress_age_sec // 60)}min ago"
+        task_lines.append(f"    {name} -> GPU[{gpu_str}] ({task_elapsed_min}min{age_suffix})")
+        running_tasks_detail.append({
+            "task_id": task_id,
+            "name": name,
+            "gpu_ids": gpu_ids,
+            "elapsed_min": task_elapsed_min,
+            "estimate_min": estimate,
+            "remaining_min": remaining_sec // 60 if remaining_sec else 0,
+            "progress": progress,
+            "progress_age_sec": progress_age_sec,
+            "started_at": started_at,
+        })
 
     est_remaining_min = int(max_remaining_sec / 60)
 
-    exp_state = load_experiment_state(active_root)
-    task_progress = {}
-    for task_id, task in exp_state.tasks.items():
-        if task.get("progress"):
-            task_progress[task_id] = task["progress"]
-    result["task_progress"] = task_progress
     if exp_state.last_recovery_at:
         result["last_recovery_at"] = exp_state.last_recovery_at
 
@@ -120,6 +179,10 @@ def cli_experiment_status(workspace_path: str = "") -> None:
     if pending_count > 0:
         lines.append(f"|  Queued: {pending_count} tasks waiting")
 
+    free_gpus = read_poll_result(str(gpu_poll_path)) or []
+    if free_gpus:
+        lines.append(f"|  Free GPUs: {free_gpus}")
+
     time_parts = []
     if elapsed_min > 0:
         time_parts.append(f"elapsed {elapsed_min}min")
@@ -133,6 +196,13 @@ def cli_experiment_status(workspace_path: str = "") -> None:
     lines.append("+-----------------------------------------+")
     lines.append("")
 
+    monitor_age_sec = None
+    if monitor_path.exists():
+        monitor_age_sec = int(max(0, time.time() - monitor_path.stat().st_mtime))
+    gpu_poll_age_sec = None
+    if gpu_poll_path.exists():
+        gpu_poll_age_sec = int(max(0, time.time() - gpu_poll_path.stat().st_mtime))
+
     result["display"] = "\n".join(lines)
     result["completed_count"] = len(completed)
     result["running_count"] = len(running_ids)
@@ -140,10 +210,25 @@ def cli_experiment_status(workspace_path: str = "") -> None:
     result["total_tasks"] = total_tasks
     result["elapsed_min"] = elapsed_min
     result["estimated_remaining_min"] = est_remaining_min
+    result["task_progress"] = task_progress
+    result["running_tasks"] = running_tasks_detail
+    result["completed_tasks"] = sorted(completed)
+    result["free_gpus"] = free_gpus
+    result["monitor_age_sec"] = monitor_age_sec
+    result["gpu_poll_age_sec"] = gpu_poll_age_sec
+    result["workspace_path"] = str(project_root)
+    result["active_workspace_path"] = str(active_root)
+    return result
+
+
+def cli_experiment_status(workspace_path: str = "") -> None:
+    """Check experiment status with rich progress information."""
+    result = _build_experiment_status_payload(workspace_path)
 
     print(json.dumps(result, indent=2, ensure_ascii=False))
 
     try:
+        active_root = resolve_active_workspace_path(workspace_path)
         monitor_persist = {key: value for key, value in result.items() if key != "display"}
         monitor_persist["snapshot_at"] = time.time()
         persist_path = active_root / "exp" / "monitor_status.json"
