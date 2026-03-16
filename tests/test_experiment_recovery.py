@@ -158,10 +158,25 @@ class TestRecoveryLogic:
         assert state.tasks["t1"]["status"] == "completed"
         assert "t1" in result.recovered_completed
 
-    def test_recover_done_failed_marks_failed(self):
+    def test_recover_done_failed_retries_then_fails(self):
+        # First failure: auto-retry resets to pending
         state = _make_state_with_tasks(t1="running")
         detection = {"t1": {"detected_status": "done", "done_info": {"exit_code": 1}}}
         result = recover_from_detection(state, detection)
+        assert state.tasks["t1"]["status"] == "pending"
+        assert "t1" in result.retried
+        assert state.tasks["t1"]["retry_count"] == 1
+
+        # Second failure: retries exhausted, marked failed
+        state.tasks["t1"]["status"] = "running"  # simulating re-dispatch
+        result2 = recover_from_detection(state, detection)
+        assert state.tasks["t1"]["status"] == "failed"
+        assert "t1" in result2.recovered_failed
+
+    def test_recover_done_failed_no_retry_when_disabled(self):
+        state = _make_state_with_tasks(t1="running")
+        detection = {"t1": {"detected_status": "done", "done_info": {"exit_code": 1}}}
+        result = recover_from_detection(state, detection, max_retries=0)
         assert state.tasks["t1"]["status"] == "failed"
         assert "t1" in result.recovered_failed
 
@@ -173,19 +188,35 @@ class TestRecoveryLogic:
         assert "t1" in result.still_running
         assert result.progress["t1"] == {"epoch": 5}
 
-    def test_recover_dead_marks_failed(self):
+    def test_recover_dead_retries_then_fails(self):
+        # First failure: auto-retry resets to pending
         state = _make_state_with_tasks(t1="running")
         detection = {"t1": {"detected_status": "dead", "dead_pid": "12345"}}
         result = recover_from_detection(state, detection)
-        assert state.tasks["t1"]["status"] == "failed"
-        assert "t1" in result.recovered_failed
+        assert state.tasks["t1"]["status"] == "pending"
+        assert "t1" in result.retried
+        assert state.tasks["t1"]["retry_count"] == 1
 
-    def test_recover_unknown_marks_failed(self):
+        # Second failure: retries exhausted
+        state.tasks["t1"]["status"] = "running"
+        result2 = recover_from_detection(state, detection)
+        assert state.tasks["t1"]["status"] == "failed"
+        assert "t1" in result2.recovered_failed
+
+    def test_recover_unknown_retries_then_fails(self):
+        # First failure: auto-retry resets to pending
         state = _make_state_with_tasks(t1="running")
         detection = {"t1": {"detected_status": "unknown"}}
         result = recover_from_detection(state, detection)
+        assert state.tasks["t1"]["status"] == "pending"
+        assert "t1" in result.retried
+        assert state.tasks["t1"]["retry_count"] == 1
+
+        # Second failure: retries exhausted
+        state.tasks["t1"]["status"] = "running"
+        result2 = recover_from_detection(state, detection)
         assert state.tasks["t1"]["status"] == "failed"
-        assert "t1" in result.recovered_failed
+        assert "t1" in result2.recovered_failed
 
     def test_recovery_result_needs_monitor(self):
         state = _make_state_with_tasks(t1="running", t2="running")
@@ -410,14 +441,16 @@ class TestEndToEndRecovery:
             'DEAD:train_extra:99999\n'
         )
 
-        # Phase 4: Parse and recover
+        # Phase 4: Parse and recover (first attempt — dead task gets auto-retry)
         detection = parse_detection_output(ssh_output)
         state = load_experiment_state(tmp_path)
         result = recover_from_detection(state, detection)
 
         assert result.recovered_completed == ["train_baseline"]
         assert result.still_running == ["train_ablation"]
-        assert result.recovered_failed == ["train_extra"]
+        # train_extra: first failure → auto-retry (pending), not failed
+        assert result.retried == ["train_extra"]
+        assert result.recovered_failed == []
         assert result.needs_monitor is True
         assert result.progress["train_ablation"]["epoch"] == 75
 
@@ -428,16 +461,26 @@ class TestEndToEndRecovery:
         completed, running_ids, _, _, _ = _load_progress(tmp_path)
         assert "train_baseline" in completed
         assert "train_ablation" in running_ids
+        # train_extra is pending (retried), not running or failed
         assert "train_extra" not in running_ids
 
-        # Phase 6: Verify state file
+        # Phase 6: Verify state file — train_extra is pending for retry
         final = load_experiment_state(tmp_path)
         assert final.tasks["train_baseline"]["status"] == "completed"
         assert final.tasks["train_ablation"]["status"] == "running"
-        assert final.tasks["train_extra"]["status"] == "failed"
+        assert final.tasks["train_extra"]["status"] == "pending"
+        assert final.tasks["train_extra"]["retry_count"] == 1
         assert "process_disappeared" in final.tasks["train_extra"]["error_summary"]
-        # 2 log entries: one for completed train_baseline, one for dead train_extra
+        # 2 log entries: one for completed train_baseline, one for retried train_extra
         assert len(final.recovery_log) == 2
+
+        # Phase 7: Simulate second failure after retry — now finally failed
+        final.tasks["train_extra"]["status"] = "running"  # re-dispatched
+        detection2 = parse_detection_output("DEAD:train_extra:88888\n")
+        result2 = recover_from_detection(final, detection2)
+        assert result2.recovered_failed == ["train_extra"]
+        assert result2.retried == []
+        assert final.tasks["train_extra"]["status"] == "failed"
 
 
 class TestSyncCompletedFromProgress:

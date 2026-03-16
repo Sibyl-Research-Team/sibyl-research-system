@@ -321,12 +321,56 @@ def topo_sort_layers(tasks: list[dict]) -> list[list[dict]]:
     return layers
 
 
+def compute_downstream_counts(tasks: list[dict]) -> dict[str, int]:
+    """Compute the number of transitive downstream dependents for each task.
+
+    A task with more downstream dependents is on a more "critical" path
+    and should be prioritized when GPU demand is equal.
+
+    Returns dict mapping task_id -> downstream_count.
+    """
+    if not tasks:
+        return {}
+
+    task_ids = {t["id"] for t in tasks}
+    # children[tid] = list of tasks that directly depend on tid
+    children: dict[str, list[str]] = {t["id"]: [] for t in tasks}
+    for t in tasks:
+        for dep in t.get("depends_on", []):
+            if dep in children:
+                children[dep].append(t["id"])
+
+    # BFS from each node to count transitive descendants (cached)
+    cache: dict[str, int] = {}
+
+    def _count(tid: str) -> int:
+        if tid in cache:
+            return cache[tid]
+        visited: set[str] = set()
+        queue = deque(children.get(tid, []))
+        while queue:
+            child = queue.popleft()
+            if child in visited:
+                continue
+            visited.add(child)
+            queue.extend(c for c in children.get(child, []) if c not in visited)
+        cache[tid] = len(visited)
+        return cache[tid]
+
+    return {t["id"]: _count(t["id"]) for t in tasks}
+
+
 def assign_gpus(ready_tasks: list[dict], gpu_ids: list[int],
-                default_gpus_per_task: int = 1) -> list[dict]:
+                default_gpus_per_task: int = 1,
+                downstream_counts: dict[str, int] | None = None) -> list[dict]:
     """Assign GPU subsets to ready tasks based on per-task gpu_count.
 
     Each task MUST declare gpu_count. Falls back to default_gpus_per_task
     only for legacy task plans that haven't been updated yet.
+
+    When ``downstream_counts`` is provided (from :func:`compute_downstream_counts`),
+    tasks with the same gpu_count are further sorted by critical-path priority:
+    more downstream dependents first, then longer estimated_minutes first.
 
     Returns list of assignments:
         [{"task_ids": ["task_0a"], "gpu_ids": [0, 1]}, ...]
@@ -336,8 +380,20 @@ def assign_gpus(ready_tasks: list[dict], gpu_ids: list[int],
     if not ready_tasks or not gpu_ids:
         return []
 
-    # Sort by gpu_count ascending — small tasks first to maximize slot utilization
-    sorted_tasks = sorted(ready_tasks, key=lambda t: t.get("gpu_count", default_gpus_per_task))
+    dc = downstream_counts or {}
+
+    # Sort by (gpu_count ASC, downstream_count DESC, estimated_minutes DESC)
+    # Small GPU tasks first to maximize slot utilization;
+    # among equal GPU demand, critical-path tasks (more downstream) first;
+    # among equal downstream, longer tasks first to overlap with shorter ones.
+    sorted_tasks = sorted(
+        ready_tasks,
+        key=lambda t: (
+            t.get("gpu_count", default_gpus_per_task),
+            -dc.get(t["id"], 0),
+            -t.get("estimated_minutes", 0),
+        ),
+    )
 
     available = list(gpu_ids)
     assignments = []
@@ -436,27 +492,82 @@ def estimate_batch_minutes(batch: list[dict], tasks: list[dict],
 
 
 def _load_progress(workspace_root: Path) -> tuple[set, set, dict, dict, set]:
-    """Load completed, running, failed, and timing info from gpu_progress.json.
+    """Load completed, running, failed, and timing info.
+
+    Prefers ``experiment_state.json`` as the authoritative source for task
+    status (completed / running / failed).  Falls back to the legacy
+    ``gpu_progress.json`` when the experiment state file does not exist.
+    Timing data (``timings``) and ``running_map`` details (``gpu_ids``,
+    ``started_at``) are still read from ``gpu_progress.json`` because
+    experiment_state.json does not carry timing calibration info.
+
+    .. note::
+       ``gpu_progress.json`` is a legacy format retained for backward
+       compatibility.  ``experiment_state.json`` is the single source of
+       truth for task lifecycle status and will eventually replace
+       ``gpu_progress.json`` entirely.
 
     Returns (completed_ids, running_ids, running_map, timings, failed_ids).
     running_map: {task_id: {"gpu_ids": [...], "started_at": "..."}}
     """
+    # Always load gpu_progress for timings and running_map details
     progress_path = workspace_root / "exp" / "gpu_progress.json"
-    completed = set()
-    running_map = {}
-    timings = {}
-    failed = set()
+    gp_completed: set[str] = set()
+    gp_running_map: dict[str, dict] = {}
+    timings: dict = {}
+    gp_failed: set[str] = set()
     if progress_path.exists():
         try:
             with open(progress_path, encoding="utf-8") as f:
                 progress = json.load(f)
-            completed = set(progress.get("completed", []))
-            running_map = progress.get("running", {})
+            gp_completed = set(progress.get("completed", []))
+            gp_running_map = progress.get("running", {})
             timings = progress.get("timings", {})
-            failed = set(progress.get("failed", []))
+            gp_failed = set(progress.get("failed", []))
         except (json.JSONDecodeError, OSError):
             pass
-    return completed, set(running_map.keys()), running_map, timings, failed
+
+    # Try experiment_state.json as authoritative source for status
+    exp_state_path = workspace_root / "exp" / "experiment_state.json"
+    if exp_state_path.exists():
+        try:
+            with open(exp_state_path, encoding="utf-8") as f:
+                exp_data = json.load(f)
+            tasks = exp_data.get("tasks", {})
+            if tasks:
+                completed: set[str] = set()
+                running_map: dict[str, dict] = {}
+                failed: set[str] = set()
+                for task_id, task_info in tasks.items():
+                    st = task_info.get("status", "")
+                    if st == "completed":
+                        completed.add(task_id)
+                    elif st == "running":
+                        # Use gpu_progress running_map for richer detail if available
+                        if task_id in gp_running_map:
+                            running_map[task_id] = gp_running_map[task_id]
+                        else:
+                            running_map[task_id] = {
+                                "gpu_ids": task_info.get("gpu_ids", []),
+                                "started_at": task_info.get("registered_at", ""),
+                            }
+                    elif st == "failed":
+                        failed.add(task_id)
+                    # "pending" tasks (from retry) are not in any set — they're
+                    # schedulable again.
+
+                # Merge any completed/failed from gpu_progress not yet in
+                # experiment_state (edge case: race between writers)
+                completed |= gp_completed
+                failed |= gp_failed
+                # Remove overlap: completed wins over failed
+                failed -= completed
+                return completed, set(running_map.keys()), running_map, timings, failed
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # Fallback: use gpu_progress.json only (legacy path)
+    return gp_completed, set(gp_running_map.keys()), gp_running_map, timings, gp_failed
 
 
 def register_running_tasks(workspace_root: Path, task_gpu_map: dict[str, list[int]]) -> None:
@@ -537,6 +648,11 @@ def get_next_batch(workspace_root: Path, gpu_ids: list[int], mode: str = "PILOT"
                    gpus_per_task: int = 1) -> list[dict] | None:
     """Get the next batch of experiment tasks to execute.
 
+    .. deprecated::
+        This is a thin wrapper around :func:`get_batch_info` retained for
+        backward compatibility.  Prefer ``get_batch_info()`` which returns
+        richer metadata (estimated time, counts, calibration info).
+
     Args:
         workspace_root: Path to workspace directory
         gpu_ids: Available GPU IDs
@@ -548,43 +664,44 @@ def get_next_batch(workspace_root: Path, gpu_ids: list[int], mode: str = "PILOT"
         []: Tasks exist but all blocked by dependencies
         [assignments]: Next batch of task-GPU assignments
     """
+    info = get_batch_info(workspace_root, gpu_ids, mode, gpus_per_task)
+    if info is None:
+        return None
+    batch = info["batch"]
+    if not batch:
+        # Distinguish "blocked" (remaining > 0) from "all done" (remaining == 0)
+        remaining = info.get("remaining_count", 0)
+        if remaining > 0:
+            return []
+        return None
+    return batch
+
+
+def has_pending_tasks(workspace_root: Path) -> bool:
+    """Lightweight check: are there tasks in task_plan.json not yet completed/failed?
+
+    Only reads task_plan.json + gpu_progress.json — skips topo-sort and GPU
+    assignment, making it much cheaper than ``get_batch_info()`` for the common
+    case of deciding whether to stay in an experiment stage.
+    """
     task_plan_path = workspace_root / "plan" / "task_plan.json"
     if not task_plan_path.exists():
-        return None
+        return False
 
     try:
         with open(task_plan_path, encoding="utf-8") as f:
             plan = json.load(f)
     except (json.JSONDecodeError, OSError):
-        return None
+        return False
 
     tasks = plan.get("tasks")
     if not tasks or not isinstance(tasks, list):
-        return None
+        return False
 
-    # Load progress (completed + running + failed)
     completed, running_ids, _, _, failed = _load_progress(workspace_root)
-
-    # Filter out completed, running, AND failed tasks
     excluded = completed | running_ids | failed
     remaining = [t for t in tasks if t["id"] not in excluded]
-    if not remaining:
-        # Check if there are running tasks (not truly done yet)
-        if running_ids:
-            return []  # Still running, nothing new to schedule
-        return None  # All done
-
-    # Treat failed as resolved for dependency purposes (don't block downstream)
-    resolved = completed | failed
-    ready = [
-        t for t in remaining
-        if all(dep in resolved for dep in t.get("depends_on", []))
-    ]
-
-    if not ready:
-        return []  # Blocked
-
-    return assign_gpus(ready, gpu_ids, gpus_per_task)
+    return bool(remaining) or bool(running_ids)
 
 
 def get_batch_info(workspace_root: Path, gpu_ids: list[int], mode: str = "PILOT",
@@ -641,7 +758,9 @@ def get_batch_info(workspace_root: Path, gpu_ids: list[int], mode: str = "PILOT"
                 "completed_count": len(completed),
                 "total_count": len(tasks)}
 
-    batch = assign_gpus(ready, gpu_ids, gpus_per_task)
+    # Compute critical-path priority from the full task graph
+    dc = compute_downstream_counts(tasks)
+    batch = assign_gpus(ready, gpu_ids, gpus_per_task, downstream_counts=dc)
     est = estimate_batch_minutes(batch, tasks, timings=timings)
 
     # Compute calibration info for description
@@ -1092,33 +1211,47 @@ print(json.dumps(digest))
         fi'''
 
         stuck_detection_block = f'''
-    # ── Stuck Process Detection ──
-    STUCK_TASKS=""
+    # ── Stuck Process Detection (batched single SSH) ──
+    # Build list of pending task IDs (skip completed)
+    PENDING_PIDS=""
     for task_id in "${{ALL_TASKS[@]}}"; do
-        # Skip completed tasks
         echo ",$COMPLETED," | grep -q ",$task_id," && continue
-
-        # Check if PID is dead but no DONE marker
-        pid_status=$(ssh {ssh_server} "
-            pid=\\$(cat {remote_project_dir}/exp/results/${{task_id}}.pid 2>/dev/null)
-            if [ -n \\"\\$pid\\" ]; then
-                if kill -0 \\$pid 2>/dev/null; then
-                    echo ALIVE
-                else
-                    echo DEAD
-                fi
-            else
-                echo NO_PID
-            fi
-        " 2>/dev/null)
-        if [ "$pid_status" = "DEAD" ]; then
-            if [ -z "$STUCK_TASKS" ]; then
-                STUCK_TASKS="$task_id"
-            else
-                STUCK_TASKS="$STUCK_TASKS,$task_id"
-            fi
+        if [ -z "$PENDING_PIDS" ]; then
+            PENDING_PIDS="$task_id"
+        else
+            PENDING_PIDS="$PENDING_PIDS $task_id"
         fi
     done
+    STUCK_TASKS=""
+    if [ -n "$PENDING_PIDS" ]; then
+        PID_BATCH=$(ssh {ssh_server} "
+            for t in $PENDING_PIDS; do
+                pid_file={remote_project_dir}/exp/results/${{t}}.pid
+                pid=\\$(cat \\$pid_file 2>/dev/null)
+                if [ -n \\"\\$pid\\" ]; then
+                    if kill -0 \\$pid 2>/dev/null; then
+                        echo \\"\\$t:ALIVE\\"
+                    else
+                        echo \\"\\$t:DEAD\\"
+                    fi
+                else
+                    echo \\"\\$t:NO_PID\\"
+                fi
+            done
+        " 2>/dev/null)
+        while IFS= read -r pid_line; do
+            [ -z "$pid_line" ] && continue
+            p_task=$(echo "$pid_line" | cut -d: -f1)
+            p_status=$(echo "$pid_line" | cut -d: -f2)
+            if [ "$p_status" = "DEAD" ]; then
+                if [ -z "$STUCK_TASKS" ]; then
+                    STUCK_TASKS="$p_task"
+                else
+                    STUCK_TASKS="$STUCK_TASKS,$p_task"
+                fi
+            fi
+        done <<< "$PID_BATCH"
+    fi
     if [ -n "$STUCK_TASKS" ]; then
         _enqueue_wake "task_died" "Process dead without DONE marker: $STUCK_TASKS" "high" "true"
     fi

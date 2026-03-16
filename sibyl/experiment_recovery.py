@@ -223,6 +223,7 @@ class RecoveryResult:
     recovered_completed: list = field(default_factory=list)
     still_running: list = field(default_factory=list)
     recovered_failed: list = field(default_factory=list)
+    retried: list = field(default_factory=list)
     ssh_unreachable: bool = False
     needs_monitor: bool = False
     progress: dict = field(default_factory=dict)
@@ -233,14 +234,57 @@ def get_running_tasks(state: ExperimentState) -> list[str]:
     return [tid for tid, info in state.tasks.items() if info.get("status") == "running"]
 
 
+# Keywords indicating a potentially recoverable failure (OOM, SSH, timeout, etc.)
+_RECOVERABLE_ERROR_KEYWORDS = (
+    "oom", "out of memory", "cuda out of memory",
+    "ssh", "connection", "timeout", "timed out",
+    "broken pipe", "reset by peer", "errno",
+)
+
+_DEFAULT_MAX_RETRIES = 1
+
+
+def _is_recoverable_failure(error_summary: str) -> bool:
+    """Check whether a failure reason looks recoverable (OOM, SSH, timeout, etc.).
+
+    If the error summary is empty or cannot be classified, returns True
+    (default to retrying once rather than giving up immediately).
+    """
+    if not error_summary:
+        return True  # unknown failure → default to retry
+    lower = error_summary.lower()
+    for kw in _RECOVERABLE_ERROR_KEYWORDS:
+        if kw in lower:
+            return True
+    # If we have an explicit error summary but it doesn't match known keywords,
+    # still default to retry since we can't be sure it's permanent
+    return True
+
+
+def _should_retry_task(task: dict, max_retries: int = _DEFAULT_MAX_RETRIES) -> bool:
+    """Determine whether a failing task should be retried."""
+    retry_count = task.get("retry_count", 0)
+    if retry_count >= max_retries:
+        return False
+    error_summary = task.get("error_summary", "")
+    return _is_recoverable_failure(error_summary)
+
+
 def recover_from_detection(
-    state: ExperimentState, detection: dict
+    state: ExperimentState, detection: dict,
+    *, max_retries: int = _DEFAULT_MAX_RETRIES,
 ) -> RecoveryResult:
     """Apply detection results to experiment state in-place.
+
+    Failed tasks with ``retry_count < max_retries`` are automatically reset
+    to ``pending`` for re-scheduling.  Only tasks that have exhausted their
+    retries (or whose failure is deemed non-recoverable) are finally marked
+    ``failed``.
 
     Args:
         state: ExperimentState to update (modified in-place)
         detection: Output from parse_detection_output()
+        max_retries: Maximum automatic retries per task (default 1)
 
     Returns:
         RecoveryResult summarizing what happened
@@ -251,36 +295,72 @@ def recover_from_detection(
 
     for task_id, info in detection.items():
         status = info.get("detected_status", "unknown")
+        task = state.tasks.setdefault(task_id, {})
 
         if status == "done":
             done_info = info.get("done_info", {})
             exit_code = done_info.get("exit_code", 0)
             if exit_code == 0:
-                state.tasks[task_id]["status"] = "completed"
+                task["status"] = "completed"
                 result.recovered_completed.append(task_id)
                 log_entries.append(f"[{now}] {task_id}: recovered as completed")
             else:
-                state.tasks[task_id]["status"] = "failed"
-                result.recovered_failed.append(task_id)
-                log_entries.append(
-                    f"[{now}] {task_id}: recovered as failed (exit_code={exit_code})"
-                )
+                # Non-zero exit code — check if we should retry
+                task["error_summary"] = f"exit_code={exit_code}"
+                if _should_retry_task(task, max_retries):
+                    task["status"] = "pending"
+                    task["retry_count"] = task.get("retry_count", 0) + 1
+                    result.retried.append(task_id)
+                    log_entries.append(
+                        f"[{now}] {task_id}: exit_code={exit_code}, "
+                        f"retry #{task['retry_count']} (reset to pending)"
+                    )
+                else:
+                    task["status"] = "failed"
+                    result.recovered_failed.append(task_id)
+                    log_entries.append(
+                        f"[{now}] {task_id}: recovered as failed "
+                        f"(exit_code={exit_code}, retries exhausted)"
+                    )
         elif status == "running":
             result.still_running.append(task_id)
             result.progress[task_id] = info.get("progress", {})
         elif status == "dead":
-            state.tasks[task_id]["status"] = "failed"
-            state.tasks[task_id]["error_summary"] = "process_disappeared"
-            result.recovered_failed.append(task_id)
-            dead_pid = info.get("dead_pid", "?")
-            log_entries.append(
-                f"[{now}] {task_id}: process dead (pid={dead_pid}), marked failed"
-            )
+            task["error_summary"] = "process_disappeared"
+            if _should_retry_task(task, max_retries):
+                task["status"] = "pending"
+                task["retry_count"] = task.get("retry_count", 0) + 1
+                result.retried.append(task_id)
+                dead_pid = info.get("dead_pid", "?")
+                log_entries.append(
+                    f"[{now}] {task_id}: process dead (pid={dead_pid}), "
+                    f"retry #{task['retry_count']} (reset to pending)"
+                )
+            else:
+                task["status"] = "failed"
+                result.recovered_failed.append(task_id)
+                dead_pid = info.get("dead_pid", "?")
+                log_entries.append(
+                    f"[{now}] {task_id}: process dead (pid={dead_pid}), "
+                    f"marked failed (retries exhausted)"
+                )
         else:  # unknown
-            state.tasks[task_id]["status"] = "failed"
-            state.tasks[task_id]["error_summary"] = "unknown_status"
-            result.recovered_failed.append(task_id)
-            log_entries.append(f"[{now}] {task_id}: unknown status, marked failed")
+            task["error_summary"] = "unknown_status"
+            if _should_retry_task(task, max_retries):
+                task["status"] = "pending"
+                task["retry_count"] = task.get("retry_count", 0) + 1
+                result.retried.append(task_id)
+                log_entries.append(
+                    f"[{now}] {task_id}: unknown status, "
+                    f"retry #{task['retry_count']} (reset to pending)"
+                )
+            else:
+                task["status"] = "failed"
+                result.recovered_failed.append(task_id)
+                log_entries.append(
+                    f"[{now}] {task_id}: unknown status, "
+                    f"marked failed (retries exhausted)"
+                )
 
     result.needs_monitor = len(result.still_running) > 0
 
