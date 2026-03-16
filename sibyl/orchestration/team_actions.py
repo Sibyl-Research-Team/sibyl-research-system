@@ -382,9 +382,12 @@ def build_writing_sections_action(
     )
     team_instructions = (
         f"Read outline from {ws}/writing/outline.md and experiment results from {ws}/exp/results/.\n\n"
+        f"**Consistency references** (MUST read before writing):\n"
+        f"- {ws}/writing/notation.md — canonical mathematical notation\n"
+        f"- {ws}/writing/glossary.md — canonical terminology and abbreviations\n\n"
         f"Spawn teammates for remaining sections:\n{sections_info}\n\n"
-        f"Teammates should coordinate for consistency — share key definitions, "
-        f"notation, and cross-references between sections.\n"
+        f"Teammates MUST follow notation.md and glossary.md exactly. "
+        f"Do not invent new symbols or alternate terms.\n"
         f"{paper_writing_requirement()}"
     )
     team_prompt = render_team_prompt(
@@ -452,7 +455,10 @@ def build_writing_critique_action(
     )
     team_instructions = (
         f"Spawn teammates for remaining critiques:\n{sections_info}\n\n"
-        f"Critics should cross-reference other sections for consistency issues. "
+        f"**Cross-section referencing**: Each critic MUST read related sections for consistency checking. "
+        f"All sections are in {ws}/writing/sections/. "
+        f"Notation reference: {ws}/writing/notation.md. "
+        f"Glossary reference: {ws}/writing/glossary.md.\n\n"
         f"Score each section 1-10 and provide specific improvement suggestions.\n"
         f"{paper_writing_requirement()}"
     )

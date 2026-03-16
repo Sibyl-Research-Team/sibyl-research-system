@@ -25,13 +25,14 @@ Read the following files for context:
 
 ## Consistency Requirements
 
-Before starting to write, establish:
+### Notation Table & Glossary
+The outline writer has already created:
+- `{workspace}/writing/notation.md` — mathematical symbols and notation
+- `{workspace}/writing/glossary.md` — unified terminology definitions
 
-### Notation Table
-Before writing Introduction, define all mathematical symbols used in the paper. Write to `{workspace}/writing/notation.md`. All subsequent sections must strictly use the same symbols.
+**Read both files before writing any section.** All sections must strictly follow these conventions.
 
-### Glossary
-Unify key terminology definitions. Write to `{workspace}/writing/glossary.md`.
+If the files are missing (legacy runs), create them before writing Introduction. If you find gaps while writing, update them incrementally — but never contradict existing definitions.
 
 ### Cross-References
 - Subsequent sections can and should reference content from completed sections

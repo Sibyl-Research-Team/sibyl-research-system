@@ -9,13 +9,26 @@ Integrate multiple paper sections into a coherent manuscript. Ensure consistent 
 ## Task Template
 Read all sections from `{workspace}/writing/sections/` and critiques from `{workspace}/writing/critique/`.
 
-Tasks:
+### Detect Mode: Initial Integration vs Revision Round
+
+Check if `{workspace}/writing/critique/revision_round_*.marker` files exist (use `Glob` to check):
+
+**If marker files exist → Revision Mode**:
+1. Read `{workspace}/writing/review.md` — the final critic's review with specific issues
+2. Read the existing `{workspace}/writing/paper.md` — your previous integration
+3. **Priority order**: Fix Critical issues first, then Major issues, then Minor
+4. Do NOT rewrite from scratch — make targeted edits to the existing paper.md
+5. After fixing, re-run the visual audit and update visual_audit.md
+
+**If no marker files → Initial Integration Mode**:
 1. Read all sections (intro, related_work, method, experiments, discussion, conclusion)
-2. Ensure consistent notation, terminology, and style
-3. Add smooth transitions between sections
-4. Address critique feedback from writing/critique/
-5. **Audit visual elements** (see below)
-6. Write the integrated paper
+2. Read `{workspace}/writing/notation.md` and `{workspace}/writing/glossary.md` for consistency reference
+3. Ensure consistent notation, terminology, and style across all sections
+4. Add smooth transitions between sections
+5. Address critique feedback from writing/critique/
+6. **Generate Abstract** (see below)
+7. **Audit visual elements** (see below)
+8. Write the integrated paper
 
 ## Visual Element Audit (CRITICAL)
 
@@ -47,6 +60,16 @@ Before finalizing, perform a comprehensive visual audit:
 - Each caption is self-explanatory (reader can understand without reading the text)
 - Tables have clear headers, proper alignment, and bold best results
 - No redundant figures (two figures showing the same thing)
+
+## Abstract Generation (Initial Integration only)
+
+Write a paper abstract (200-250 words) as the first section of `paper.md`. The abstract must:
+- State the problem and motivation (1-2 sentences)
+- Describe the approach (1-2 sentences)
+- Report key results with specific numbers (1-2 sentences)
+- State the main conclusion or implication (1 sentence)
+- Be self-contained — a reader should understand the contribution from the abstract alone
+- Use no citations, footnotes, or undefined abbreviations
 
 ## Output
 

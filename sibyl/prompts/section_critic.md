@@ -10,10 +10,24 @@ Review the assigned paper section systematically against 7 quality dimensions. P
 Review the "{section_name}" section.
 
 Read: `{workspace}/writing/sections/{section_id}.md`
+
 Also read for cross-reference context:
 - `{workspace}/writing/outline.md` (to check if this section fulfills its outline promise)
+- `{workspace}/writing/notation.md` (to verify notation consistency)
+- `{workspace}/writing/glossary.md` (to verify terminology consistency)
 - `{workspace}/idea/proposal.md` (to verify technical accuracy against the original proposal)
 - `{workspace}/exp/results/summary.md` (for Experiments section: verify claims match data)
+
+### Cross-Section References (REQUIRED)
+Use `Glob("{workspace}/writing/sections/*.md")` to discover all available sections, then read the ones most relevant to your assigned section:
+- **intro** critic → also read `method` (verify intro's method preview is accurate)
+- **related_work** critic → also read `intro` and `method` (verify positioning matches contributions; verify gaps identified match what method addresses)
+- **method** critic → also read `experiments` (verify method description matches what was actually run)
+- **experiments** critic → also read `method` and `discussion` (verify consistency of setup descriptions and result claims)
+- **discussion** critic → also read `experiments` (verify discussion references actual results)
+- **conclusion** critic → also read `intro` and `experiments` (verify conclusion echoes intro's questions; verify conclusion does not overclaim beyond reported results)
+
+This cross-referencing is essential for dimension 7 (Cross-Section Consistency). Without it, you cannot properly assess consistency.
 
 ## Review Protocol (follow ALL 7 dimensions)
 
@@ -58,7 +72,10 @@ Compare against `writing/outline.md`:
 - Check for banned patterns: "In recent years...", "It is worth noting...", "Furthermore...", vague "significantly improves" without numbers
 
 ### 7. Cross-Section Consistency
-- Is terminology consistent with other sections (if you can check)?
+Using the cross-section references you read above:
+- Is terminology consistent with related sections? Flag any conflicts (e.g., "fine-tuning" in one section vs "finetuning" in another)
+- Do notation and symbols match `notation.md`? Flag deviations
+- Are claims consistent between sections? (e.g., method description in intro matches the actual method section)
 - Are figures/tables numbered consistently?
 - Are citations formatted uniformly?
 

@@ -11,11 +11,15 @@ Write the "{section_name}" section of the paper.
 
 Read:
 - `{workspace}/writing/outline.md` for the section outline AND the Figure & Table Plan
+- `{workspace}/writing/notation.md` for mathematical notation (MUST follow these symbols exactly)
+- `{workspace}/writing/glossary.md` for unified terminology (MUST use these terms consistently)
 - `{workspace}/idea/proposal.md` for the proposal
 - `{workspace}/exp/results/summary.md` for results (if applicable)
 - `{workspace}/plan/methodology.md` for methodology (if applicable)
 - `{workspace}/idea/references.json` for citations
 - `{workspace}/writing/figures/style_config.py` for visual style (if exists)
+
+**Consistency requirement**: All mathematical symbols MUST match `notation.md`. All technical terms MUST match `glossary.md`. Do not invent new notation or alternate terminology — if something is missing from these files, use the closest existing convention and append a line to `{workspace}/writing/notation_gaps.md` describing the gap (create the file if it does not exist).
 
 ## Visual Elements
 

@@ -59,11 +59,33 @@ Design a **Figure & Table Plan** as part of the outline. For EACH visual element
    - Include figure references in the text BEFORE the figure appears
 
 ## Output
+
+### 1. Paper Outline
 Write to `{workspace}/writing/outline.md`
 
 The outline MUST contain the Figure & Table Plan section with at least 3 visual elements specified.
 
+### 2. Notation Table (REQUIRED)
+Write to `{workspace}/writing/notation.md`
+
+Before any section writing begins, establish all mathematical symbols and notation used in the paper:
+- Define every symbol (e.g., `$\mathcal{D}$: training dataset`, `$\theta$: model parameters`)
+- Group by category (inputs, model components, metrics, etc.)
+- Include dimensionality where applicable (e.g., `$x \in \mathbb{R}^d$`)
+- All subsequent section writers will reference this file for consistency
+
+### 3. Glossary (REQUIRED)
+Write to `{workspace}/writing/glossary.md`
+
+Unify key terminology definitions used throughout the paper:
+- Define each technical term with a 1-sentence explanation
+- Specify preferred phrasing (e.g., "fine-tuning" not "finetuning", "few-shot" not "few shot")
+- Include abbreviations and their expansions (e.g., "LLM: Large Language Model")
+- Note any domain-specific terms that readers may not know
+
+These three files form the foundation for all subsequent writing. Section writers, critics, and the editor all reference them.
+
 ## Tool Usage
 - Use `Read` to read proposal, results, and methodology
 - Use `Glob` to scan experiment result files for available data
-- Use `Write` to save the outline
+- Use `Write` to save the outline, notation table, and glossary
