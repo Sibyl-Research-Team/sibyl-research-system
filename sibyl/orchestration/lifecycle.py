@@ -7,6 +7,7 @@ import time
 from dataclasses import asdict
 from typing import Any
 
+from .action_dispatcher import render_execution_script
 from .agent_helpers import resolve_model_tier
 
 
@@ -24,12 +25,14 @@ def get_next_action(orchestrator: Any, *, action_cls: type[Any]) -> dict:
             if status.stop_requested_at is not None
             else "项目已手动停止。"
         )
-        return asdict(action_cls(
+        result = asdict(action_cls(
             action_type="stopped",
             description=f"{stopped_at}使用 /sibyl-research:resume 重新进入自治循环。",
             stage=status.stage,
             iteration=status.iteration,
         ))
+        result["execution_script"] = render_execution_script(result)
+        return result
 
     if status.paused:
         orchestrator.ws.resume()
@@ -49,6 +52,11 @@ def get_next_action(orchestrator: Any, *, action_cls: type[Any]) -> dict:
 
     result = asdict(action)
     result["language"] = orchestrator.config.language
+
+    # Inject pre-compiled execution script for deterministic dispatch
+    if not result.get("execution_script"):
+        result["execution_script"] = render_execution_script(result)
+
     return result
 
 
@@ -105,3 +113,5 @@ def record_result(
 
     if orchestrator.config.lark_enabled and stage not in _NO_SYNC_TRIGGER:
         append_pending_sync(orchestrator, stage)
+
+    return {"sync_requested": orchestrator.config.lark_enabled and stage not in _NO_SYNC_TRIGGER}

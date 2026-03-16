@@ -31,3 +31,4 @@ class Action:
     estimated_minutes: int = 0
     checkpoint_info: dict | None = None
     experiment_monitor: dict | None = None
+    execution_script: str = ""

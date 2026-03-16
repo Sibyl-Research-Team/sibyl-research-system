@@ -38,11 +38,14 @@ class Config:
     # Paper-writing artifacts remain English regardless of this setting.
     language: str = "zh"
 
+    # Compute backend: "local" (default) or "ssh"
+    compute_backend: str = "local"
+
     # GPU scheduling
     max_gpus: int = 4  # max GPUs to use (picks any free ones, not fixed IDs)
     gpus_per_task: int = 1
     ssh_server: str = "default"
-    remote_base: str = "/home/user/sibyl_system"  # CHANGE ME: your remote server path
+    remote_base: str = "/home/user/sibyl_system"  # remote GPU server path (compute_backend: ssh)
 
     # GPU polling (for shared servers with other users)
     gpu_poll_enabled: bool = True
@@ -63,6 +66,10 @@ class Config:
     # Full experiments
     full_seeds: list[int] = field(default_factory=lambda: [42, 123, 456])
 
+    # Research focus (1=explore .. 5=deep_focus, default 3=balanced)
+    # Controls how readily the system PIVOTs vs persists with the current idea.
+    research_focus: int = 3
+
     # Multi-agent debate
     debate_rounds: int = 2
     writing_revision_rounds: int = 2
@@ -70,6 +77,7 @@ class Config:
     # Codex integration
     codex_enabled: bool = False
     codex_model: str = ""  # Codex model (empty = use default; ChatGPT accounts don't support custom models)
+    codex_idea_rounds: int = 2  # max Codex-guided idea refinement rounds (0 = no iteration)
 
     # Writing mode
     writing_mode: str = "parallel"  # "sequential" | "parallel" | "codex"
@@ -80,11 +88,16 @@ class Config:
     server_codex_path: str = "codex"  # Codex CLI path on server
     server_claude_path: str = "claude"  # Claude CLI path on server
 
-    # Remote environment
+    # Remote environment (compute_backend: ssh)
     remote_env_type: str = "conda"       # "conda" | "venv"
     remote_conda_path: str = ""          # empty = auto {remote_base}/miniconda3/bin/conda
     remote_conda_env_name: str = ""      # empty = auto sibyl_<project>; set to reuse an existing env
     iteration_dirs: bool = True          # True = iteration subdirectory mode (default)
+
+    # Local environment (compute_backend: local)
+    local_env_type: str = "conda"        # "conda" | "venv"
+    local_conda_path: str = ""           # empty = system conda
+    local_conda_env_name: str = ""       # empty = auto sibyl_<project>
 
     # Lark sync
     lark_enabled: bool = True
@@ -96,6 +109,13 @@ class Config:
     self_heal_enabled: bool = True
     self_heal_interval_sec: int = 300   # scan interval (5 min)
     self_heal_max_attempts: int = 3     # circuit breaker threshold
+
+    # Experiment supervisor (Opus background subagent)
+    # When False (default), experiment monitoring runs as a pure bash daemon
+    # launched by the PostToolUse hook — zero LLM token cost.
+    # When True, an Opus subagent is additionally started for anomaly
+    # investigation (drift detection, stuck process diagnosis).
+    supervisor_enabled: bool = False
 
     # Orchestra external skills integration
     orchestra_skills_enabled: bool = True
@@ -152,16 +172,21 @@ class Config:
             "gpu_poll_interval_sec", "gpu_poll_max_attempts",
             "gpu_aggressive_mode", "gpu_aggressive_threshold_pct",
             "pilot_samples", "pilot_timeout",
+            "research_focus",
             "debate_rounds", "writing_revision_rounds",
             "lark_enabled", "evolution_enabled",
             "idea_exp_cycles", "idea_validation_rounds",
             "max_iterations", "max_iterations_cap",
-            "codex_enabled", "codex_model", "writing_mode", "codex_writing_model",
+            "codex_enabled", "codex_model", "codex_idea_rounds",
+            "writing_mode", "codex_writing_model",
+            "compute_backend",
             "experiment_mode", "server_codex_path", "server_claude_path",
             "remote_env_type", "remote_conda_path", "remote_conda_env_name",
             "iteration_dirs",
+            "local_env_type", "local_conda_path", "local_conda_env_name",
             "language",
             "self_heal_enabled", "self_heal_interval_sec", "self_heal_max_attempts",
+            "supervisor_enabled",
             "orchestra_skills_enabled", "orchestra_skills_dir", "orchestra_skills_max",
         ]:
             if key in data:
@@ -180,11 +205,22 @@ class Config:
                 getattr(cfg, key).update(data[key])
 
         # Validate enum-like fields
-        # Validate remote_env_type
+        valid_compute_backends = {"local", "ssh"}
+        if cfg.compute_backend not in valid_compute_backends:
+            raise ValueError(
+                f"Invalid compute_backend '{cfg.compute_backend}', "
+                f"must be one of {valid_compute_backends}"
+            )
+
         valid_env_types = {"conda", "venv"}
         if cfg.remote_env_type not in valid_env_types:
             raise ValueError(
                 f"Invalid remote_env_type '{cfg.remote_env_type}', "
+                f"must be one of {valid_env_types}"
+            )
+        if cfg.local_env_type not in valid_env_types:
+            raise ValueError(
+                f"Invalid local_env_type '{cfg.local_env_type}', "
                 f"must be one of {valid_env_types}"
             )
 
@@ -193,6 +229,12 @@ class Config:
             raise ValueError(
                 f"Invalid language '{cfg.language}', "
                 f"must be one of {valid_languages}"
+            )
+
+        if isinstance(cfg.research_focus, bool) or not isinstance(cfg.research_focus, int) or not 1 <= cfg.research_focus <= 5:
+            raise ValueError(
+                f"Invalid research_focus '{cfg.research_focus}', "
+                f"must be an integer between 1 and 5"
             )
 
         valid_writing_modes = {"sequential", "parallel", "codex"}
@@ -252,16 +294,21 @@ class Config:
             "gpu_poll_interval_sec", "gpu_poll_max_attempts",
             "gpu_aggressive_mode", "gpu_aggressive_threshold_pct",
             "pilot_samples", "pilot_timeout",
+            "research_focus",
             "debate_rounds", "writing_revision_rounds",
             "lark_enabled", "evolution_enabled",
             "idea_exp_cycles", "idea_validation_rounds",
             "max_iterations", "max_iterations_cap",
-            "codex_enabled", "codex_model", "writing_mode", "codex_writing_model",
+            "compute_backend",
+            "codex_enabled", "codex_model", "codex_idea_rounds",
+            "writing_mode", "codex_writing_model",
             "experiment_mode", "server_codex_path", "server_claude_path",
             "remote_env_type", "remote_conda_path", "remote_conda_env_name",
             "iteration_dirs",
+            "local_env_type", "local_conda_path", "local_conda_env_name",
             "language",
             "self_heal_enabled", "self_heal_interval_sec", "self_heal_max_attempts",
+            "supervisor_enabled",
             "orchestra_skills_enabled", "orchestra_skills_dir", "orchestra_skills_max",
         ]:
             if key in merged:
@@ -273,10 +320,22 @@ class Config:
             if key in merged:
                 getattr(cfg, key).update(merged[key])
 
+        valid_compute_backends = {"local", "ssh"}
+        if cfg.compute_backend not in valid_compute_backends:
+            raise ValueError(
+                f"Invalid compute_backend '{cfg.compute_backend}', "
+                f"must be one of {valid_compute_backends}"
+            )
+
         valid_env_types = {"conda", "venv"}
         if cfg.remote_env_type not in valid_env_types:
             raise ValueError(
                 f"Invalid remote_env_type '{cfg.remote_env_type}', "
+                f"must be one of {valid_env_types}"
+            )
+        if cfg.local_env_type not in valid_env_types:
+            raise ValueError(
+                f"Invalid local_env_type '{cfg.local_env_type}', "
                 f"must be one of {valid_env_types}"
             )
 
@@ -285,6 +344,12 @@ class Config:
             raise ValueError(
                 f"Invalid language '{cfg.language}', "
                 f"must be one of {valid_languages}"
+            )
+
+        if isinstance(cfg.research_focus, bool) or not isinstance(cfg.research_focus, int) or not 1 <= cfg.research_focus <= 5:
+            raise ValueError(
+                f"Invalid research_focus '{cfg.research_focus}', "
+                f"must be an integer between 1 and 5"
             )
 
         valid_writing_modes = {"sequential", "parallel", "codex"}
@@ -307,6 +372,14 @@ class Config:
             return f"source {self.remote_base}/projects/{project_name}/.venv/bin/activate &&"
         conda = self.remote_conda_path or f"{self.remote_base}/miniconda3/bin/conda"
         env_name = self.remote_conda_env_name or f"sibyl_{project_name}"
+        return f"{conda} run -n {env_name}"
+
+    def get_local_env_cmd(self, project_name: str) -> str:
+        """Return the environment activation command for local execution."""
+        if self.local_env_type == "venv":
+            return f"source .venv/bin/activate &&"
+        conda = self.local_conda_path or "conda"
+        env_name = self.local_conda_env_name or f"sibyl_{project_name}"
         return f"{conda} run -n {env_name}"
 
     def to_dict(self) -> dict:
@@ -349,9 +422,19 @@ class Config:
 # Agent output language ("zh" | "en"). Papers are always English.
 language: {_val('language')}
 
-# ── Remote Server ────────────────────────────────────────────────────
+# ── Compute Backend ──────────────────────────────────────────────────
+# "local" = run experiments on local GPUs directly (default)
+# "ssh"   = run experiments on remote GPU server via SSH
+compute_backend: {_val('compute_backend')}
+
+# ── Local GPU (compute_backend: local) ───────────────────────────────
+local_env_type: {_val('local_env_type')}                     # "conda" | "venv"
+local_conda_path: {_val('local_conda_path')}                    # empty = system conda
+local_conda_env_name: {_val('local_conda_env_name')}               # empty = auto: sibyl_{{project}}
+
+# ── Remote GPU (compute_backend: ssh) ────────────────────────────────
 ssh_server: {_val('ssh_server')}                       # SSH MCP connection name
-remote_base: {_val('remote_base')}    # [CHANGE ME] remote GPU server path
+remote_base: {_val('remote_base')}    # remote GPU server path
 remote_env_type: {_val('remote_env_type')}                    # "conda" | "venv"
 remote_conda_path: {_val('remote_conda_path')}                   # empty = auto
 remote_conda_env_name: {_val('remote_conda_env_name')}              # empty = auto: sibyl_{{project}}
@@ -369,6 +452,10 @@ gpu_poll_max_attempts: {_val('gpu_poll_max_attempts')}                # 0 = infi
 # Aggressive mode: claim GPUs with low utilization
 gpu_aggressive_mode: {_val('gpu_aggressive_mode')}
 gpu_aggressive_threshold_pct: {_val('gpu_aggressive_threshold_pct')}        # VRAM usage % threshold
+
+# ── Research Focus ──────────────────────────────────────────────────
+# 1=explore (pivot early), 2=open, 3=balanced (default), 4=focused, 5=deep_focus (persist)
+research_focus: {_val('research_focus')}
 
 # ── Experiment Pipeline ─────────────────────────────────────────────
 idea_exp_cycles: {_val('idea_exp_cycles')}                     # idea→experiment cycles
@@ -406,6 +493,7 @@ review_enabled: {_val('review_enabled')}
 codex_enabled: {_val('codex_enabled')}
 codex_model: {_val('codex_model')}                         # empty = Codex default
 codex_writing_model: {_val('codex_writing_model')}                 # empty = Codex default
+codex_idea_rounds: {_val('codex_idea_rounds')}                    # Codex-guided idea refinement rounds (0 = skip)
 
 # ── Integrations ────────────────────────────────────────────────────
 lark_enabled: {_val('lark_enabled')}                     # Feishu/Lark doc sync
