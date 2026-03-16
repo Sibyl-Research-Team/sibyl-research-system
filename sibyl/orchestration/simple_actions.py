@@ -120,18 +120,30 @@ def build_writing_latex_action(
     *,
     action_cls: type[Any],
 ) -> Any:
-    """Build the LaTeX conversion/compile action."""
+    """Build the LaTeX conversion/compile action.
+
+    Attempts deterministic compilation first (pandoc + latexmk), then falls
+    back to the sibyl-latex-writer skill agent on failure.
+    """
+    from .common_utils import build_repo_python_cli_command
+
+    compile_cmd = build_repo_python_cli_command("latex-compile", ws)
+    fallback_skill = {
+        "name": "sibyl-latex-writer",
+        "args": pack_skill_args(
+            ws,
+            orchestrator.config.ssh_server,
+            orchestrator.config.remote_base,
+        ),
+    }
     return action_cls(
-        action_type="skill",
-        skills=[{
-            "name": "sibyl-latex-writer",
-            "args": pack_skill_args(
-                ws,
-                orchestrator.config.ssh_server,
-                orchestrator.config.remote_base,
-            ),
-        }],
-        description="将论文转为 NeurIPS LaTeX 格式并编译 PDF",
+        action_type="bash",
+        bash_command=compile_cmd,
+        skills=[fallback_skill],
+        description=(
+            "LaTeX 编译: 先尝试 pandoc+latexmk 确定性编译，"
+            "失败则 fallback 到 sibyl-latex-writer agent"
+        ),
         stage="writing_latex",
     )
 

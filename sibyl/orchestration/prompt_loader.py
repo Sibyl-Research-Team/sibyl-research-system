@@ -41,6 +41,10 @@ _ROLE_PROMPTS_WITH_EXPERIMENT_PROTOCOL = {
     "planner",
     "server_experimenter",
 }
+_ROLE_PROMPTS_WITH_EXPERIMENT_EXECUTION = {
+    "experimenter",
+    "server_experimenter",
+}
 _ROLE_PROMPTS_WITH_STRUCTURED_REVIEW = {
     "critic",
     "reflection",
@@ -138,10 +142,47 @@ def _build_shared_runtime_sections(
                     All paper-facing drafts must stay in English and keep terminology consistent with earlier sections.
                     Mention figures or tables before they appear, and preserve any explicit artifact markers required by
                     the downstream writing pipeline.
+
+                    ### Writing Quality Rules
+                    - Lead with the concrete thing: experimental result, number, figure reference, or code example.
+                      Explain after the evidence, not before.
+                    - Prefer short, direct sentences. Every sentence must earn its place.
+                    - Use specific numbers when available; never round away meaningful precision.
+                    - Back every claim with evidence from the workspace or experiment outputs.
+                    - Report negative results and unresolved risks explicitly; do not smooth them over.
+
+                    ### Banned Patterns (rewrite on sight)
+                    - Generic openings: "In recent years, X has attracted increasing attention..."
+                    - Hollow self-praise: "To the best of our knowledge, this is the first work to..."
+                    - Filler transitions: "Moreover", "Furthermore", "It is worth noting that..."
+                    - Hype words: "groundbreaking", "game-changing", "revolutionary", "novel" (unless quantified)
+                    - Vague claims without evidence: "significantly outperforms", "greatly improves"
+                      (use exact numbers: "improves F1 by 3.2 points on GSM8K")
+
+                    ### Quality Gate (before finalizing any section)
+                    - [ ] Every claim has a specific data point or citation
+                    - [ ] No banned pattern survives in the text
+                    - [ ] Figures/tables are referenced before they appear
+                    - [ ] Terminology is consistent with notation.md/glossary.md (if they exist)
+                    - [ ] Each paragraph adds new information (no repetition across sections)
                     """
                 ).strip(),
             )
         )
+    if agent_name in _ROLE_PROMPTS_WITH_EXPERIMENT_EXECUTION:
+        experiment_protocol = _load_prompt_body("_experiment_protocol")
+        if not experiment_protocol:
+            import warnings
+
+            warnings.warn(
+                f"_experiment_protocol.md not found in {PROMPTS_DIR}; "
+                f"{agent_name} prompt will be missing critical execution protocols",
+                stacklevel=2,
+            )
+        else:
+            sections.append(
+                PromptSection("Experiment Execution Protocols", experiment_protocol)
+            )
     if agent_name in _ROLE_PROMPTS_WITH_STRUCTURED_REVIEW:
         sections.append(
             PromptSection(
@@ -220,6 +261,124 @@ def _build_orchestra_skills_section(
     )
 
 
+_FOCUS_LEVEL_NAMES = {1: "explore", 2: "open", 3: "balanced", 4: "focused", 5: "deep_focus"}
+
+_AGENTS_WITH_FOCUS_DIRECTIVE = {
+    "supervisor_decision",
+    "idea_validation_decision",
+    "synthesizer",
+}
+
+_FOCUS_DIRECTIVES: dict[str, dict[int, str]] = {
+    "supervisor_decision": {
+        1: (
+            "Research Focus: EXPLORE mode. Lean heavily toward PIVOT. Even modest negative "
+            "results or unclear improvement paths should trigger a direction change. The goal "
+            "is to rapidly explore the idea space rather than optimize a single approach."
+        ),
+        2: (
+            "Research Focus: OPEN mode. Lean toward PIVOT when results are below baseline "
+            "or show no clear improvement path. Prefer exploring alternatives over incremental "
+            "tuning of a mediocre approach."
+        ),
+        4: (
+            "Research Focus: FOCUSED mode. Lean toward PROCEED. Only recommend PIVOT when "
+            "core hypotheses are clearly refuted and no credible improvement path remains. "
+            "Give the current direction more iterations to prove itself before giving up."
+        ),
+        5: (
+            "Research Focus: DEEP FOCUS mode. Strongly favor PROCEED. Recommend PIVOT only "
+            "when evidence overwhelmingly proves the fundamental approach is flawed — not "
+            "just underperforming. Exhaust optimization options before considering a pivot."
+        ),
+    },
+    "idea_validation_decision": {
+        1: (
+            "Research Focus: EXPLORE mode. Prefer PIVOT over REFINE when pilot signal is weak "
+            "or ambiguous. Move on to alternative candidates quickly rather than spending "
+            "more rounds refining a shaky idea."
+        ),
+        2: (
+            "Research Focus: OPEN mode. Lean toward REFINE or PIVOT when pilot signal is "
+            "ambiguous. Only ADVANCE when pilot evidence is clearly positive."
+        ),
+        4: (
+            "Research Focus: FOCUSED mode. Prefer REFINE over PIVOT. Give the current "
+            "front-runner more chances to prove itself through additional refinement rounds. "
+            "Only PIVOT when pilot evidence conclusively disproves the core hypotheses."
+        ),
+        5: (
+            "Research Focus: DEEP FOCUS mode. Strongly prefer ADVANCE or REFINE. Reserve "
+            "PIVOT for cases where pilot data definitively falsifies the core hypotheses "
+            "with no viable adjustment path."
+        ),
+    },
+    "synthesizer": {
+        1: (
+            "Research Focus: EXPLORE mode. Maintain 3-4 candidates in the pool. Keep options "
+            "wide open and do not converge prematurely. Weight novelty and diversity of "
+            "approaches over depth of any single idea."
+        ),
+        2: (
+            "Research Focus: OPEN mode. Maintain 2-3 candidates. Be willing to replace the "
+            "current front-runner if a fresher alternative shows more promise."
+        ),
+        4: (
+            "Research Focus: FOCUSED mode. Maintain 1-2 candidates. Concentrate resources on "
+            "the strongest idea. Only keep a backup if it represents a fundamentally different "
+            "approach that could succeed where the front-runner fails."
+        ),
+        5: (
+            "Research Focus: DEEP FOCUS mode. Focus on 1 front-runner candidate. Invest all "
+            "effort in deepening and strengthening this idea. Keep at most 1 backup, and only "
+            "if it is truly orthogonal to the main direction."
+        ),
+    },
+}
+
+
+def _build_research_focus_section(
+    agent_name: str,
+    workspace_path: str | Path | None,
+) -> str:
+    """Build a research focus directive for decision-making agents.
+
+    Returns an empty string for agents not in _AGENTS_WITH_FOCUS_DIRECTIVE
+    or when focus level is 3 (balanced, the default — no extra directive).
+    """
+    if agent_name not in _AGENTS_WITH_FOCUS_DIRECTIVE:
+        return ""
+
+    from sibyl.orchestration.config_helpers import load_effective_config
+
+    try:
+        ws_root = detect_workspace_root(workspace_path)
+        if ws_root is not None:
+            ws_root = resolve_workspace_root(ws_root)
+        config = load_effective_config(ws_root)
+    except Exception:
+        import warnings
+
+        warnings.warn(
+            f"Failed to load config for research_focus directive (agent={agent_name}); "
+            f"defaulting to balanced (no directive injected)",
+            stacklevel=2,
+        )
+        return ""
+
+    focus = getattr(config, "research_focus", 3)
+    if focus == 3:
+        return ""
+
+    directives = _FOCUS_DIRECTIVES.get(agent_name, {})
+    text = directives.get(focus, "")
+    if not text:
+        return ""
+
+    level_name = _FOCUS_LEVEL_NAMES.get(focus, str(focus))
+    return f"**Active research_focus={focus} ({level_name})**\n\n{text}"
+
+
 def render_skill_prompt(
     agent_name: str,
     workspace_path: str | Path | None = None,
@@ -240,6 +399,11 @@ def render_skill_prompt(
     )
     if runtime_json:
         sections.append(PromptSection("Runtime Arguments", runtime_json))
+
+    focus_directive = _build_research_focus_section(agent_name, workspace_path)
+    if focus_directive:
+        sections.append(PromptSection("Research Focus Directive", focus_directive))
+
     sections.append(PromptSection("Role Protocol", role_prompt))
 
     evolution_overlay = _load_evolution_overlay(agent_name, workspace_path)

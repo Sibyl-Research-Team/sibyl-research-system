@@ -515,6 +515,7 @@ cli_recover_experiments = _bind_cli(
     orchestrator_factory=FarsOrchestrator,
 )
 cli_apply_recovery = _runtime_cli.cli_apply_recovery
+cli_sync_experiment_completions = _runtime_cli.cli_sync_experiment_completions
 cli_list_projects = _project_cli.cli_list_projects
 cli_init_spec = _project_cli.cli_init_spec
 cli_init_from_spec = _project_cli.cli_init_from_spec
@@ -539,6 +540,7 @@ cli_migrate_server = _migration_cli.cli_migrate_server
 cli_self_heal_scan = _ops_cli.cli_self_heal_scan
 cli_self_heal_record = _ops_cli.cli_self_heal_record
 cli_self_heal_status = _ops_cli.cli_self_heal_status
+cli_self_heal_daemon_start = _ops_cli.cli_self_heal_daemon_start
 self_heal_monitor_script = _ops_cli.self_heal_monitor_script
 
 

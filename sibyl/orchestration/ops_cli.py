@@ -14,16 +14,24 @@ from .common_utils import build_repo_python_cli_command, self_heal_status_file
 
 
 def cli_self_heal_scan(workspace_path: str = "") -> None:
-    """Scan for errors and generate repair tasks."""
+    """Scan for errors and generate repair tasks.
+
+    Attempts deterministic auto-fixes first (pip install, mkdir, config repair)
+    before generating LLM agent repair tasks. Auto-fixed errors are marked
+    as processed immediately.
+    """
+    from sibyl.auto_fix import attempt_auto_fix
     from sibyl.error_collector import ErrorCollector
     from sibyl.self_heal import SelfHealRouter
 
     if workspace_path:
         errors_file = Path(workspace_path) / "logs" / "errors.jsonl"
         state_file = Path(workspace_path) / "logs" / "self_heal_state.json"
+        ws_path = Path(workspace_path)
     else:
         errors_file = Path("logs") / "errors.jsonl"
         state_file = Path("logs") / "self_heal_state.json"
+        ws_path = Path(".")
 
     collector = ErrorCollector(errors_file)
     router = SelfHealRouter(state_file)
@@ -32,10 +40,33 @@ def cli_self_heal_scan(workspace_path: str = "") -> None:
     errors = router.deduplicate(errors)
     errors = router.filter_actionable(errors)
     errors = router.prioritize(errors)
-    tasks = [router.generate_repair_task(error) for error in errors]
+
+    # Phase 1: Attempt deterministic auto-fixes
+    auto_fixed: list[dict] = []
+    remaining_errors: list[dict] = []
+    for error in errors:
+        fix_result = attempt_auto_fix(error, ws_path)
+        if fix_result and fix_result.get("fixed"):
+            error_id = error.get("id", error.get("error_id", ""))
+            auto_fixed.append({
+                "error_id": error_id,
+                "action": fix_result.get("action", ""),
+                "detail": fix_result.get("detail", ""),
+            })
+            # Mark as processed
+            if error_id:
+                router.record_fix_attempt(error_id, True, None)
+                collector.mark_processed(error_id)
+        else:
+            remaining_errors.append(error)
+
+    # Phase 2: Generate agent repair tasks for remaining errors
+    tasks = [router.generate_repair_task(error) for error in remaining_errors]
 
     print(json.dumps({
         "total_unprocessed": len(collector.read_errors(unprocessed_only=True)),
+        "auto_fixed": auto_fixed,
+        "auto_fixed_count": len(auto_fixed),
         "actionable": len(tasks),
         "tasks": tasks,
         "self_heal_status": router.get_status(),
@@ -130,6 +161,45 @@ while true; do
     sleep "$INTERVAL"
 done
 '''
+
+
+def cli_self_heal_daemon_start(workspace_path: str = "") -> None:
+    """Launch the self-heal background monitor daemon (idempotent).
+
+    If the daemon is already running, returns immediately.
+    The daemon runs ``cli_self_heal_scan`` every ``self_heal_interval_sec``
+    seconds and writes a ``.trigger`` file when actionable errors are found.
+    """
+    import os
+    import subprocess
+
+    pid_path = Path(self_heal_status_file(workspace_path)).with_suffix(".pid")
+
+    # Check if already running
+    if pid_path.exists():
+        try:
+            pid = int(pid_path.read_text().strip())
+            os.kill(pid, 0)
+            print(json.dumps({"status": "already_running", "pid": pid}))
+            return
+        except (ValueError, OSError):
+            pid_path.unlink(missing_ok=True)
+
+    script = self_heal_monitor_script(workspace_path)
+    script_path = pid_path.with_suffix(".sh")
+    script_path.write_text(script)
+    script_path.chmod(0o755)
+
+    log_path = pid_path.with_suffix(".log")
+    with open(log_path, "a") as log_fh:
+        proc = subprocess.Popen(
+            ["bash", str(script_path)],
+            stdout=log_fh,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+    pid_path.write_text(str(proc.pid))
+    print(json.dumps({"status": "launched", "pid": proc.pid, "script": str(script_path)}))
 
 
 def cli_log_agent(
