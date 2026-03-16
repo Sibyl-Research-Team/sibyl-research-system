@@ -220,18 +220,13 @@ def build_experiment_batch_action(
     else:
         effective_gpu_ids = list(range(orchestrator.config.max_gpus))
 
-    exp_state = load_experiment_state(orchestrator.ws.active_root)
+    # Migrate from gpu_progress if experiment_state has no tasks yet
     if not exp_state.tasks:
         _, recovered_running_ids, _, _, _ = _load_progress(orchestrator.ws.active_root)
         if recovered_running_ids:
             exp_state = migrate_from_gpu_progress(orchestrator.ws.active_root)
             save_experiment_state(orchestrator.ws.active_root, exp_state)
-
-    running_tasks = get_running_tasks(exp_state)
-    if running_tasks:
-        completed_set, _, _, _, _ = _load_progress(orchestrator.ws.active_root)
-        if _sync_completed_tasks(exp_state, running_tasks, completed_set):
-            save_experiment_state(orchestrator.ws.active_root, exp_state)
+            running_tasks = get_running_tasks(exp_state)
 
     task_plan_path = orchestrator.ws.active_path("plan/task_plan.json")
     if task_plan_path.exists():
