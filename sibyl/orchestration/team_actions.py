@@ -15,6 +15,35 @@ from .constants import PAPER_SECTIONS
 from .prompt_loader import render_team_prompt
 
 
+def _candidate_hint_for_focus(focus: int) -> str:
+    """Return the candidate pool instruction adjusted for research_focus level."""
+    if focus <= 1:
+        return (
+            "Maintain a broad candidate pool: keep 3-4 serious ideas alive. Prioritize "
+            "diversity of approaches over depth. Do not converge prematurely.\n\n"
+        )
+    if focus == 2:
+        return (
+            "Maintain a candidate pool: keep 2-3 serious ideas alive. Be willing to "
+            "explore alternatives rather than over-investing in one direction.\n\n"
+        )
+    if focus == 4:
+        return (
+            "Maintain a focused candidate pool: keep 1-2 serious ideas alive. Concentrate "
+            "effort on the strongest idea. Only keep a backup if it is fundamentally different.\n\n"
+        )
+    if focus >= 5:
+        return (
+            "Focus on 1 front-runner candidate. Invest all effort in deepening this idea. "
+            "Keep at most 1 backup only if truly orthogonal to the main direction.\n\n"
+        )
+    # focus == 3 (balanced, default)
+    return (
+        "Maintain a small candidate pool: keep 2-3 serious ideas alive until pilot evidence "
+        "separates them. Do not collapse to a single idea too early unless the evidence is overwhelming.\n\n"
+    )
+
+
 def _completed_checkpoint_action(
     *,
     action_cls: type[Any],
@@ -114,6 +143,20 @@ def build_idea_debate_action(
             f"{validation_feedback_json}"
         )
 
+    # Novelty and Codex feedback from prior rounds (drives refinement)
+    novelty_report = orchestrator.ws.read_file("idea/novelty_report.md") or ""
+    codex_feedback = orchestrator.ws.read_file("codex/idea_debate_review.md") or ""
+    if novelty_report:
+        extra_context += (
+            "\n\n## 上一轮新颖性检查报告（必须针对发现的撞车问题进行修正）\n"
+            f"{novelty_report}"
+        )
+    if codex_feedback:
+        extra_context += (
+            "\n\n## Codex 独立评审反馈（必须针对其指出的问题进行修正）\n"
+            f"{codex_feedback}"
+        )
+
     if extra_context:
         orchestrator.ws.write_file("context/idea_context.md", extra_context)
 
@@ -131,10 +174,7 @@ def build_idea_debate_action(
                 f"This is evidence-driven refinement round {validation_round + 1}. "
                 + refinement_hint
             )
-    candidate_hint = (
-        "Maintain a small candidate pool: keep 2-3 serious ideas alive until pilot evidence "
-        "separates them. Do not collapse to a single idea too early unless the evidence is overwhelming.\n\n"
-    )
+    candidate_hint = _candidate_hint_for_focus(orchestrator.config.research_focus)
 
     team_instructions = (
         f"Generate and debate research ideas for: {topic}\n\n"
@@ -175,6 +215,7 @@ def build_idea_debate_action(
 
     post_steps = [
         {"type": "skill", "skill": "sibyl-synthesizer", "args": ws},
+        {"type": "skill", "skill": "sibyl-novelty-checker", "args": ws},
     ]
     if orchestrator.config.codex_enabled:
         post_steps.append({

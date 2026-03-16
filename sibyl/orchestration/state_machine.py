@@ -168,6 +168,26 @@ def natural_next_stage(
             )
             return ("writing_integrate", None)
 
+    if current_stage == "idea_debate":
+        if orchestrator.config.codex_enabled and orchestrator.config.codex_idea_rounds > 0:
+            verdict = load_codex_idea_verdict(orchestrator)
+            if verdict == "REVISE":
+                codex_round = get_current_codex_idea_round(orchestrator)
+                if codex_round < orchestrator.config.codex_idea_rounds:
+                    orchestrator.ws.write_file(
+                        f"logs/codex_idea_round_{codex_round + 1}.marker",
+                        f"Codex REVISE at idea_debate round {codex_round + 1}",
+                    )
+                    prepare_idea_refinement_round(
+                        orchestrator,
+                        f"codex idea revision round {codex_round + 1}",
+                    )
+                    return ("idea_debate", None)
+                orchestrator.ws.add_error(
+                    "Codex requested REVISE but codex_idea_rounds limit reached "
+                    f"({codex_round}/{orchestrator.config.codex_idea_rounds}); advancing"
+                )
+
     if current_stage == "init":
         return ("literature_search", None)
 
@@ -278,6 +298,11 @@ def clear_iteration_artifacts(orchestrator: Any, iteration: int = 0) -> None:
                 marker.unlink()
             except OSError:
                 pass
+        for marker in logs_dir.glob("codex_idea_round_*.marker"):
+            try:
+                marker.unlink()
+            except OSError:
+                pass
 
     for cp_dir in CHECKPOINT_DIRS.values():
         orchestrator.ws.clear_checkpoint(cp_dir)
@@ -324,6 +349,29 @@ def reset_experiment_runtime_state(orchestrator: Any) -> None:
     sync_workspace_gpu_leases(orchestrator.ws.active_root, {})
 
 
+def get_current_codex_idea_round(orchestrator: Any) -> int:
+    """Get current Codex-guided idea refinement round count."""
+    logs_dir = orchestrator.ws.project_path("logs")
+    if not logs_dir.exists():
+        return 0
+    return len(list(logs_dir.glob("codex_idea_round_*.marker")))
+
+
+def load_codex_idea_verdict(orchestrator: Any) -> str:
+    """Load the Codex idea-debate verdict (APPROVE or REVISE).
+
+    Returns "APPROVE" if the review is missing, unparseable, or doesn't
+    contain a recognized verdict — the pipeline should not block on Codex failures.
+    """
+    content = orchestrator.ws.read_file("codex/idea_debate_review.md")
+    if not content:
+        return "APPROVE"
+    match = re.search(r"VERDICT:\s*(APPROVE|REVISE)", content, re.IGNORECASE)
+    if match:
+        return match.group(1).upper()
+    return "APPROVE"
+
+
 def get_current_cycle(orchestrator: Any) -> int:
     """Get current idea-experiment cycle number."""
     logs_dir = orchestrator.ws.project_path("logs")
@@ -350,6 +398,13 @@ def prepare_idea_refinement_round(orchestrator: Any, reason: str) -> None:
             target.mkdir(parents=True, exist_ok=True)
         except OSError:
             pass
+    # Clear stale Codex verdict so the next round gets a fresh review
+    codex_review = orchestrator.ws.active_path("codex/idea_debate_review.md")
+    try:
+        if codex_review.exists():
+            codex_review.unlink()
+    except OSError:
+        pass
     cp_dir = CHECKPOINT_DIRS.get("idea_debate")
     if cp_dir:
         orchestrator.ws.clear_checkpoint(cp_dir)
