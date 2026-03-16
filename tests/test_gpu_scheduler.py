@@ -96,27 +96,34 @@ class TestAssignGpus:
         assert result[1]["gpu_ids"] == [1]
 
     def test_per_task_gpu_count(self):
-        """Each task declares its own gpu_count."""
+        """Each task declares its own gpu_count. Smallest-first ordering."""
         tasks = [
             {"id": "a", "gpu_count": 2},
             {"id": "b", "gpu_count": 1},
         ]
         result = assign_gpus(tasks, [0, 1, 2, 3])
         assert len(result) == 2
-        assert result[0]["gpu_ids"] == [0, 1]  # task a gets 2 GPUs
-        assert result[1]["gpu_ids"] == [2]      # task b gets 1 GPU
+        # Sorted smallest-first: b (1 GPU) then a (2 GPUs)
+        assert result[0]["task_ids"] == ["b"]
+        assert result[0]["gpu_ids"] == [0]
+        assert result[1]["task_ids"] == ["a"]
+        assert result[1]["gpu_ids"] == [1, 2]
 
     def test_mixed_gpu_counts_exhaust(self):
-        """Tasks with different gpu_count, not enough GPUs for all."""
+        """Tasks with different gpu_count, not enough GPUs for all.
+        Smallest-first: c(1) + a(2) + b(2 > 1 remaining) = 2 tasks assigned."""
         tasks = [
             {"id": "a", "gpu_count": 2},
             {"id": "b", "gpu_count": 2},
             {"id": "c", "gpu_count": 1},
         ]
         result = assign_gpus(tasks, [0, 1, 2, 3])
-        assert len(result) == 2  # a=2, b=2, c can't fit
-        assert result[0]["gpu_ids"] == [0, 1]
-        assert result[1]["gpu_ids"] == [2, 3]
+        assert len(result) == 2
+        # Sorted: c(1), a(2), b(2). c=[0], a=[1,2], b needs 2 but only [3] left
+        assert result[0]["task_ids"] == ["c"]
+        assert result[0]["gpu_ids"] == [0]
+        assert result[1]["task_ids"] == ["a"]
+        assert result[1]["gpu_ids"] == [1, 2]
 
     def test_default_gpus_per_task_fallback(self):
         """Tasks without gpu_count use the default."""
@@ -1174,6 +1181,37 @@ class TestMonitorScriptDispatchNeeded:
         assert "dispatch_needed" in script
         assert "PREV_DONE_COUNT" in script
         assert "DISPATCH" in script
+
+
+# ══════════════════════════════════════════════
+# Smallest-first GPU assignment
+# ══════════════════════════════════════════════
+
+def test_assign_gpus_smallest_first():
+    """Smaller tasks should be assigned first to maximize GPU utilization."""
+    tasks = [
+        {"id": "big", "gpu_count": 3},
+        {"id": "small_a", "gpu_count": 1},
+        {"id": "small_b", "gpu_count": 1},
+    ]
+    result = assign_gpus(tasks, [0, 1, 2, 3])
+    assigned_ids = {a["task_ids"][0] for a in result}
+    # At minimum 2 tasks should be assigned
+    assert len(result) >= 2
+    # small tasks should be preferred since they fit
+    assert "small_a" in assigned_ids
+    assert "small_b" in assigned_ids
+
+
+def test_assign_gpus_skip_too_large():
+    """Tasks that need more GPUs than available should be skipped, not block."""
+    tasks = [
+        {"id": "huge", "gpu_count": 8},
+        {"id": "tiny", "gpu_count": 1},
+    ]
+    result = assign_gpus(tasks, [0, 1])
+    assert len(result) == 1
+    assert result[0]["task_ids"] == ["tiny"]
 
 
 # ══════════════════════════════════════════════

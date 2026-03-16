@@ -17,6 +17,7 @@ from sibyl.orchestrate import (
     cli_experiment_supervisor_drain_wake, cli_experiment_supervisor_snapshot,
     cli_record_gpu_poll, cli_requeue_experiment_task,
 )
+from sibyl.config import Config
 from sibyl.workspace import Workspace
 
 
@@ -238,7 +239,12 @@ class TestBackgroundSync:
         )
         from sibyl.gpu_scheduler import register_running_tasks
 
-        o = make_orchestrator(stage="experiment_cycle", lark_enabled=True, gpu_poll_enabled=False)
+        o = make_orchestrator(
+            stage="experiment_cycle", lark_enabled=True,
+            gpu_poll_enabled=False, supervisor_enabled=True,
+        )
+        # Persist supervisor_enabled so cli_resume re-reads it from config.yaml
+        o.ws.write_file("config.yaml", o.config.to_yaml())
         o.ws.pause("user_stop")
         o.ws.write_file(
             "plan/task_plan.json",
@@ -280,7 +286,11 @@ class TestBackgroundSync:
         from sibyl.gpu_scheduler import register_running_tasks
         from sibyl.orchestrate import cli_status
 
-        o = make_orchestrator(stage="experiment_cycle", lark_enabled=True, gpu_poll_enabled=False)
+        o = make_orchestrator(
+            stage="experiment_cycle", lark_enabled=True,
+            gpu_poll_enabled=False, supervisor_enabled=True,
+        )
+        o.ws.write_file("config.yaml", o.config.to_yaml())
         o.ws.write_file(
             "plan/task_plan.json",
             json.dumps({"tasks": [{"id": "task_a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 30}]}),
@@ -684,6 +694,126 @@ class TestIdeaValidationLoop:
         assert o.ws.get_status().stage == "experiment_cycle"
         errors = o.ws.get_status().errors
         assert any("more refinement rounds than allowed" in e["error"] for e in errors)
+
+
+# ══════════════════════════════════════════════
+# Codex idea iteration loop
+# ══════════════════════════════════════════════
+
+class TestCodexIdeaIteration:
+    """Test the Codex-guided idea refinement loop."""
+
+    def test_codex_revise_loops_back_to_idea_debate(self, make_orchestrator):
+        o = make_orchestrator(stage="idea_debate", codex_enabled=True, codex_idea_rounds=2)
+        o.ws.write_file(
+            "codex/idea_debate_review.md",
+            "## Review\nNeeds work.\n\nVERDICT: REVISE",
+        )
+        o.record_result("idea_debate")
+        assert o.ws.get_status().stage == "idea_debate"
+        markers = list((o.ws.root / "logs").glob("codex_idea_round_*.marker"))
+        assert len(markers) == 1
+
+    def test_codex_approve_advances_to_planning(self, make_orchestrator):
+        o = make_orchestrator(stage="idea_debate", codex_enabled=True, codex_idea_rounds=2)
+        o.ws.write_file(
+            "codex/idea_debate_review.md",
+            "## Review\nLooks good.\n\nVERDICT: APPROVE",
+        )
+        o.record_result("idea_debate")
+        assert o.ws.get_status().stage == "planning"
+
+    def test_codex_missing_review_advances(self, make_orchestrator):
+        """Missing Codex review should not block — advance by default."""
+        o = make_orchestrator(stage="idea_debate", codex_enabled=True, codex_idea_rounds=2)
+        o.record_result("idea_debate")
+        assert o.ws.get_status().stage == "planning"
+
+    def test_codex_revise_respects_round_limit(self, make_orchestrator):
+        o = make_orchestrator(stage="idea_debate", codex_enabled=True, codex_idea_rounds=1)
+        o.ws.write_file("logs/codex_idea_round_1.marker", "round 1")
+        o.ws.write_file(
+            "codex/idea_debate_review.md",
+            "Still not great.\n\nVERDICT: REVISE",
+        )
+        o.record_result("idea_debate")
+        assert o.ws.get_status().stage == "planning"
+        errors = o.ws.get_status().errors
+        assert any("codex_idea_rounds limit" in e["error"] for e in errors)
+
+    def test_codex_disabled_skips_iteration(self, make_orchestrator):
+        """codex_enabled=False should bypass the iteration check entirely."""
+        o = make_orchestrator(stage="idea_debate", codex_enabled=False, codex_idea_rounds=2)
+        o.ws.write_file(
+            "codex/idea_debate_review.md",
+            "VERDICT: REVISE",
+        )
+        o.record_result("idea_debate")
+        assert o.ws.get_status().stage == "planning"
+
+    def test_codex_idea_rounds_zero_skips_iteration(self, make_orchestrator):
+        """codex_idea_rounds=0 should bypass even when codex_enabled."""
+        o = make_orchestrator(stage="idea_debate", codex_enabled=True, codex_idea_rounds=0)
+        o.ws.write_file(
+            "codex/idea_debate_review.md",
+            "VERDICT: REVISE",
+        )
+        o.record_result("idea_debate")
+        assert o.ws.get_status().stage == "planning"
+
+    def test_codex_revise_clears_stale_verdict_on_loop(self, make_orchestrator):
+        """prepare_idea_refinement_round should delete the old Codex review."""
+        o = make_orchestrator(stage="idea_debate", codex_enabled=True, codex_idea_rounds=2)
+        o.ws.write_file(
+            "codex/idea_debate_review.md",
+            "Old review.\n\nVERDICT: REVISE",
+        )
+        o.record_result("idea_debate")
+        assert o.ws.get_status().stage == "idea_debate"
+        # The stale review should have been deleted
+        assert o.ws.read_file("codex/idea_debate_review.md") is None
+
+    def test_codex_markers_cleared_on_iteration_boundary(self, make_orchestrator):
+        o = make_orchestrator(stage="quality_gate", codex_enabled=True)
+        o.ws.write_file("logs/codex_idea_round_1.marker", "round 1")
+        o.ws.write_file("logs/codex_idea_round_2.marker", "round 2")
+        o.ws.write_file("supervisor/review.json", json.dumps({"score": 9.5}))
+        from sibyl.orchestration.state_machine import clear_iteration_artifacts
+        clear_iteration_artifacts(o, 1)
+        markers = list((o.ws.root / "logs").glob("codex_idea_round_*.marker"))
+        assert len(markers) == 0
+
+
+class TestNoveltyCheckerPostStep:
+    """Test that the novelty checker is included in idea_debate post_steps."""
+
+    def test_novelty_checker_in_post_steps(self, make_orchestrator):
+        o = make_orchestrator(stage="idea_debate", codex_enabled=False)
+        action = o.get_next_action()
+        assert action["action_type"] == "team"
+        post_steps = action["team"]["post_steps"]
+        skill_names = [step["skill"] for step in post_steps]
+        assert "sibyl-synthesizer" in skill_names
+        assert "sibyl-novelty-checker" in skill_names
+        # novelty checker should be after synthesizer
+        assert skill_names.index("sibyl-novelty-checker") > skill_names.index("sibyl-synthesizer")
+
+    def test_codex_reviewer_after_novelty_checker(self, make_orchestrator):
+        o = make_orchestrator(stage="idea_debate", codex_enabled=True)
+        action = o.get_next_action()
+        post_steps = action["team"]["post_steps"]
+        skill_names = [step["skill"] for step in post_steps]
+        assert "sibyl-novelty-checker" in skill_names
+        assert "sibyl-codex-reviewer" in skill_names
+        assert skill_names.index("sibyl-codex-reviewer") > skill_names.index("sibyl-novelty-checker")
+
+    def test_novelty_feedback_in_context(self, make_orchestrator):
+        """Novelty report from prior round should appear in the team prompt context."""
+        o = make_orchestrator(stage="idea_debate")
+        o.ws.write_file("idea/novelty_report.md", "Candidate A has a collision with Paper X")
+        action = o.get_next_action()
+        context = o.ws.read_file("context/idea_context.md") or ""
+        assert "collision" in context.lower() or "novelty" in context.lower()
 
 
 # ══════════════════════════════════════════════
@@ -1457,7 +1587,7 @@ class TestSkillArgContracts:
         assert args == [str(o.ws.root), "fix-gpu"]
 
     def test_experimenter_args_include_remote_env_command(self, make_orchestrator):
-        o = make_orchestrator(stage="pilot_experiments", gpu_poll_enabled=False)
+        o = make_orchestrator(stage="pilot_experiments", gpu_poll_enabled=False, compute_backend="ssh")
         action = o.get_next_action()
         args = shlex.split(action["skills"][0]["args"])
 
@@ -1476,6 +1606,7 @@ class TestSkillArgContracts:
             stage="pilot_experiments",
             experiment_mode="server_codex",
             gpu_poll_enabled=False,
+            compute_backend="ssh",
         )
         action = o.get_next_action()
         args = shlex.split(action["skills"][0]["args"])
@@ -1496,6 +1627,7 @@ class TestSkillArgContracts:
             stage="pilot_experiments",
             experiment_mode="server_claude",
             gpu_poll_enabled=False,
+            compute_backend="ssh",
         )
         action = o.get_next_action()
         args = shlex.split(action["skills"][0]["args"])
@@ -1595,23 +1727,22 @@ class TestPromptLoading:
         assert "## Locale Contract" in prompt
         assert "## Workspace Contract" in prompt
         assert "## Role Protocol" in prompt
-        assert "自主触发 Orchestra 技能" in prompt
-        assert "不要等用户提醒" in prompt
+        assert "Orchestra" in prompt
 
     def test_render_skill_prompt_includes_experimenter_autonomous_skill_rules(self, tmp_path):
         ws = Workspace(tmp_path, "compiled-exp-prompt-proj")
         prompt = render_skill_prompt("experimenter", workspace_path=ws.root)
-        assert "自主触发 Orchestra 技能" in prompt
+        assert "Orchestra Skill Auto-Trigger" in prompt
         assert "vllm" in prompt
         assert "deepspeed" in prompt
-        assert "不要等用户提醒" in prompt
+        assert "Do not wait for user prompting" in prompt
 
     def test_render_skill_prompt_includes_supervisor_autonomous_skill_rules(self, tmp_path):
         ws = Workspace(tmp_path, "compiled-supervisor-prompt-proj")
         prompt = render_skill_prompt("experiment_supervisor", workspace_path=ws.root)
-        assert "自主触发 Orchestra 技能" in prompt
+        assert "Orchestra Skill Auto-Trigger" in prompt
         assert "experiment-supervisor-notify-main" in prompt
-        assert "不要等主系统或用户提醒" in prompt
+        assert "Do not wait for the main system or user" in prompt
 
     def test_render_skill_prompt_appends_project_memory(self, tmp_path, monkeypatch):
         ws = Workspace(tmp_path, "compiled-memory-proj")
@@ -1707,7 +1838,119 @@ class TestPromptLoading:
     def test_reflection_prompt_defaults_suggested_max_iterations_to_20(self):
         prompt = load_prompt("reflection")
         assert '"suggested_max_iterations": 20' in prompt
-        assert "默认建议填 `20`" in prompt
+        assert "default to `20`" in prompt
+
+
+class TestResearchFocus:
+    """Tests for the research_focus configuration and prompt injection."""
+
+    def test_config_default_is_balanced(self):
+        cfg = Config()
+        assert cfg.research_focus == 3
+
+    def test_config_from_yaml_reads_research_focus(self, tmp_path):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("research_focus: 5\n", encoding="utf-8")
+        cfg = Config.from_yaml(str(config_file))
+        assert cfg.research_focus == 5
+
+    def test_config_rejects_invalid_research_focus(self, tmp_path):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("research_focus: 0\n", encoding="utf-8")
+        with pytest.raises(ValueError, match="research_focus"):
+            Config.from_yaml(str(config_file))
+
+    def test_config_rejects_bool_research_focus(self, tmp_path):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("research_focus: true\n", encoding="utf-8")
+        with pytest.raises(ValueError, match="research_focus"):
+            Config.from_yaml(str(config_file))
+
+    def test_config_rejects_research_focus_above_5(self, tmp_path):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text("research_focus: 6\n", encoding="utf-8")
+        with pytest.raises(ValueError, match="research_focus"):
+            Config.from_yaml(str(config_file))
+
+    def test_focus_directive_not_injected_for_balanced(self, tmp_path, monkeypatch):
+        """Level 3 (balanced/default) should not inject any focus directive."""
+        ws = Workspace(tmp_path, "focus-test")
+        config_file = ws.root / "config.yaml"
+        config_file.write_text("research_focus: 3\n", encoding="utf-8")
+        monkeypatch.chdir(ws.root)
+        prompt = render_skill_prompt("supervisor_decision", workspace_path=ws.root)
+        assert "Research Focus Directive" not in prompt
+
+    def test_focus_directive_injected_for_deep_focus(self, tmp_path, monkeypatch):
+        """Level 5 should inject DEEP FOCUS directive into supervisor_decision."""
+        ws = Workspace(tmp_path, "focus-test")
+        config_file = ws.root / "config.yaml"
+        config_file.write_text("research_focus: 5\n", encoding="utf-8")
+        monkeypatch.chdir(ws.root)
+        prompt = render_skill_prompt("supervisor_decision", workspace_path=ws.root)
+        assert "## Research Focus Directive" in prompt
+        assert "DEEP FOCUS" in prompt
+        assert "Strongly favor PROCEED" in prompt
+
+    def test_focus_directive_injected_for_explore(self, tmp_path, monkeypatch):
+        """Level 1 should inject EXPLORE directive into idea_validation_decision."""
+        ws = Workspace(tmp_path, "focus-test")
+        config_file = ws.root / "config.yaml"
+        config_file.write_text("research_focus: 1\n", encoding="utf-8")
+        monkeypatch.chdir(ws.root)
+        prompt = render_skill_prompt("idea_validation_decision", workspace_path=ws.root)
+        assert "## Research Focus Directive" in prompt
+        assert "EXPLORE" in prompt
+
+    def test_focus_directive_injected_for_synthesizer(self, tmp_path, monkeypatch):
+        """Level 4 should inject FOCUSED directive into synthesizer."""
+        ws = Workspace(tmp_path, "focus-test")
+        config_file = ws.root / "config.yaml"
+        config_file.write_text("research_focus: 4\n", encoding="utf-8")
+        monkeypatch.chdir(ws.root)
+        prompt = render_skill_prompt("synthesizer", workspace_path=ws.root)
+        assert "## Research Focus Directive" in prompt
+        assert "FOCUSED" in prompt
+
+    def test_focus_directive_not_injected_for_unrelated_agent(self, tmp_path, monkeypatch):
+        """Agents not in the focus list should not get the directive."""
+        ws = Workspace(tmp_path, "focus-test")
+        config_file = ws.root / "config.yaml"
+        config_file.write_text("research_focus: 5\n", encoding="utf-8")
+        monkeypatch.chdir(ws.root)
+        prompt = render_skill_prompt("planner", workspace_path=ws.root)
+        assert "Research Focus Directive" not in prompt
+
+    def test_candidate_hint_explore(self, make_orchestrator):
+        """Focus 1 should produce a broad candidate pool hint."""
+        o = make_orchestrator(stage="idea_debate", research_focus=1)
+        action = o.get_next_action()
+        assert action["action_type"] == "team"
+        prompt = action["team"]["prompt"]
+        assert "3-4" in prompt
+
+    def test_candidate_hint_deep_focus(self, make_orchestrator):
+        """Focus 5 should produce a focused candidate pool hint."""
+        o = make_orchestrator(stage="idea_debate", research_focus=5)
+        action = o.get_next_action()
+        assert action["action_type"] == "team"
+        prompt = action["team"]["prompt"]
+        assert "1 front-runner" in prompt
+
+    def test_candidate_hint_balanced_default(self, make_orchestrator):
+        """Focus 3 (default) keeps the original 2-3 candidate hint."""
+        o = make_orchestrator(stage="idea_debate", research_focus=3)
+        action = o.get_next_action()
+        assert action["action_type"] == "team"
+        prompt = action["team"]["prompt"]
+        assert "2-3 serious ideas" in prompt
+
+    def test_commented_yaml_includes_research_focus(self):
+        cfg = Config()
+        yaml_text = cfg.to_commented_yaml()
+        assert "research_focus:" in yaml_text
+        assert "explore" in yaml_text
+        assert "deep_focus" in yaml_text
 
 
 class TestMigration:
@@ -2006,7 +2249,8 @@ class TestExperimentParallel:
         assert len(action["skills"]) == 2
 
     def test_per_task_gpu_count(self, make_orchestrator):
-        """Tasks with per-task gpu_count override the default."""
+        """Tasks with per-task gpu_count override the default.
+        Smallest-first: b(1 GPU) before a(2 GPUs)."""
         o = make_orchestrator(stage="pilot_experiments", gpu_poll_enabled=False,
                               idea_validation_rounds=0)
         tasks = [
@@ -2017,9 +2261,9 @@ class TestExperimentParallel:
         action = o.get_next_action()
         assert action["action_type"] == "skills_parallel"
         assert len(action["skills"]) == 2
-        # Task a should get 2 GPUs, task b should get 1
-        assert "0,1" in action["skills"][0]["args"]
-        assert "2" in action["skills"][1]["args"]
+        # Smallest-first: b(1 GPU) then a(2 GPUs)
+        assert "--tasks=b" in action["skills"][0]["args"]
+        assert "--tasks=a" in action["skills"][1]["args"]
 
     def test_estimated_minutes_in_action(self, make_orchestrator):
         """Action should include estimated_minutes from task plan."""
@@ -2052,6 +2296,19 @@ class TestExperimentParallel:
         assert monitor["timeout_minutes"] >= 30  # at least 30 min
         assert "experiment-supervisor-drain-wake" in monitor["wake_cmd"]
         assert monitor["wake_check_interval_sec"] == 90
+        # Default: no background_agent (bash daemon via hook instead)
+        assert "background_agent" not in monitor
+
+    def test_experiment_monitor_includes_supervisor_when_enabled(self, make_orchestrator):
+        """When supervisor_enabled=True, background_agent is included."""
+        o = make_orchestrator(stage="pilot_experiments", gpu_poll_enabled=False, supervisor_enabled=True)
+        tasks = [
+            {"id": "task_1a", "depends_on": [], "gpu_count": 1, "estimated_minutes": 30},
+        ]
+        o.ws.write_file("plan/task_plan.json", json.dumps({"tasks": tasks}))
+        action = o.get_next_action()
+        monitor = action.get("experiment_monitor")
+        assert monitor is not None
         assert monitor["background_agent"]["name"] == "sibyl-experiment-supervisor"
         assert shlex.quote(str(o.ws.active_root)) in monitor["background_agent"]["args"]
 
@@ -2075,7 +2332,8 @@ class TestExperimentParallel:
         action = o.get_next_action()
         assert action["estimated_minutes"] == 0
         assert "experiment-supervisor-drain-wake" in action["experiment_monitor"]["wake_cmd"]
-        assert action["experiment_monitor"]["background_agent"]["name"] == "sibyl-experiment-supervisor"
+        # Default: no background_agent (supervisor_enabled=False)
+        assert "background_agent" not in action["experiment_monitor"]
 
 
 # ══════════════════════════════════════════════
@@ -2099,7 +2357,8 @@ class TestGpuPollingIntegration:
         action = o.get_next_action()
         assert action["action_type"] == "gpu_poll"
         assert action["gpu_poll"] is not None
-        assert action["gpu_poll"]["ssh_connection"] == "default"
+        # Local backend returns "" for ssh_connection; SSH backend returns the server name
+        assert action["gpu_poll"]["ssh_connection"] == ""
         assert action["gpu_poll"]["marker_file"] == project_marker_file(o.ws.root, "gpu_free")
         assert "nvidia-smi" in action["gpu_poll"]["query_cmd"]
         assert action["gpu_poll"]["max_gpus"] == 4
@@ -2978,7 +3237,8 @@ class TestExperimentWaitAction:
         assert "status_cmd" in action["experiment_monitor"]
         assert "wake_cmd" in action["experiment_monitor"]
         assert action["experiment_monitor"]["wake_check_interval_sec"] == 90
-        assert action["experiment_monitor"]["background_agent"]["name"] == "sibyl-experiment-supervisor"
+        # Default: no background_agent (supervisor_enabled=False)
+        assert "background_agent" not in action["experiment_monitor"]
 
     def test_experiment_wait_adaptive_interval_short(self, make_orchestrator):
         """Short remaining time → 2min poll interval."""

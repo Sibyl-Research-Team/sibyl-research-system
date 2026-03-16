@@ -314,15 +314,18 @@ def assign_gpus(ready_tasks: list[dict], gpu_ids: list[int],
     if not ready_tasks or not gpu_ids:
         return []
 
+    # Sort by gpu_count ascending — small tasks first to maximize slot utilization
+    sorted_tasks = sorted(ready_tasks, key=lambda t: t.get("gpu_count", default_gpus_per_task))
+
     available = list(gpu_ids)
     assignments = []
 
-    for task in ready_tasks:
+    for task in sorted_tasks:
         needed = task.get("gpu_count", default_gpus_per_task)
         needed = max(1, needed)  # at least 1 GPU
 
         if needed > len(available):
-            break  # not enough GPUs for this task
+            continue  # Skip this task, try smaller ones
 
         assigned = available[:needed]
         available = available[needed:]
@@ -334,7 +337,7 @@ def assign_gpus(ready_tasks: list[dict], gpu_ids: list[int],
         if not available:
             break
 
-    # Edge case: no task could be assigned (first task needs more GPUs than total)
+    # Edge case: no task could be assigned (all tasks need more GPUs than available)
     if not assignments and ready_tasks:
         needed = ready_tasks[0].get("gpu_count", default_gpus_per_task)
         if needed > len(gpu_ids):
