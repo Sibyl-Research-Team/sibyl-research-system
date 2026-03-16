@@ -8,12 +8,28 @@ State file: exp/experiment_state.json (relative to workspace root)
 """
 
 import datetime
+import fcntl
 import json
+from contextlib import contextmanager
 from dataclasses import dataclass, field, asdict
 from pathlib import Path
 
 
 STATE_FILE = "exp/experiment_state.json"
+
+
+@contextmanager
+def _experiment_state_lock(workspace_root: Path):
+    """Serialize access to experiment_state.json."""
+    lock_path = workspace_root / "exp" / "experiment_state.lock"
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_fd = open(lock_path, "w", encoding="utf-8")
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        lock_fd.close()
 
 
 @dataclass
@@ -31,25 +47,27 @@ def load_experiment_state(workspace_root: Path) -> ExperimentState:
     state_path = workspace_root / STATE_FILE
     if not state_path.exists():
         return ExperimentState()
-    try:
-        with open(state_path, encoding="utf-8") as f:
-            data = json.load(f)
-        return ExperimentState(
-            schema_version=data.get("schema_version", 1),
-            tasks=data.get("tasks", {}),
-            last_recovery_at=data.get("last_recovery_at", ""),
-            recovery_log=data.get("recovery_log", []),
-        )
-    except (json.JSONDecodeError, OSError):
-        return ExperimentState()
+    with _experiment_state_lock(workspace_root):
+        try:
+            with open(state_path, encoding="utf-8") as f:
+                data = json.load(f)
+            return ExperimentState(
+                schema_version=data.get("schema_version", 1),
+                tasks=data.get("tasks", {}),
+                last_recovery_at=data.get("last_recovery_at", ""),
+                recovery_log=data.get("recovery_log", []),
+            )
+        except (json.JSONDecodeError, OSError):
+            return ExperimentState()
 
 
 def save_experiment_state(workspace_root: Path, state: ExperimentState) -> None:
     """Save experiment state to disk."""
     state_path = workspace_root / STATE_FILE
     state_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(state_path, "w", encoding="utf-8") as f:
-        json.dump(asdict(state), f, indent=2)
+    with _experiment_state_lock(workspace_root):
+        with open(state_path, "w", encoding="utf-8") as f:
+            json.dump(asdict(state), f, indent=2)
 
 
 def register_task(
@@ -345,6 +363,57 @@ def mark_task_for_retry(
     save_experiment_state(workspace_root, state)
     sync_to_gpu_progress(workspace_root, state)
     return task
+
+
+def mark_tasks_completed(
+    workspace_root: Path,
+    completed_ids: list[str],
+    failed_ids: list[str] | None = None,
+) -> dict:
+    """Mark tasks as completed/failed in experiment_state.json and sync.
+
+    Lightweight alternative to the full SSH detection + apply_recovery protocol.
+    Designed to be called from the bash monitor daemon when it detects DONE markers.
+
+    Returns:
+        Summary dict with counts and lists of updated task IDs.
+    """
+    if failed_ids is None:
+        failed_ids = []
+    state = load_experiment_state(workspace_root)
+    now = datetime.datetime.now().isoformat()
+    log_entries: list[str] = []
+    actually_completed: list[str] = []
+    actually_failed: list[str] = []
+
+    for task_id in completed_ids:
+        task = state.tasks.get(task_id)
+        if task and task.get("status") == "running":
+            task["status"] = "completed"
+            actually_completed.append(task_id)
+            log_entries.append(f"[{now}] {task_id}: daemon detected DONE, marked completed")
+
+    for task_id in failed_ids:
+        task = state.tasks.get(task_id)
+        if task and task.get("status") == "running":
+            task["status"] = "failed"
+            task["error_summary"] = "daemon_detected_failure"
+            actually_failed.append(task_id)
+            log_entries.append(f"[{now}] {task_id}: daemon detected failure, marked failed")
+
+    if log_entries:
+        state.recovery_log.extend(log_entries)
+        state.last_recovery_at = now
+        save_experiment_state(workspace_root, state)
+        sync_to_gpu_progress(workspace_root, state)
+
+    return {
+        "status": "ok",
+        "completed": actually_completed,
+        "failed": actually_failed,
+        "completed_count": len(actually_completed),
+        "failed_count": len(actually_failed),
+    }
 
 
 def migrate_from_gpu_progress(workspace_root: Path) -> ExperimentState:

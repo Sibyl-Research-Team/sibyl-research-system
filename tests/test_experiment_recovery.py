@@ -440,6 +440,22 @@ class TestEndToEndRecovery:
         assert len(final.recovery_log) == 2
 
 
+class TestExperimentStateLocking:
+    def test_experiment_state_lock_exists(self):
+        """experiment_state operations should use a file lock."""
+        import inspect
+        from sibyl.experiment_recovery import save_experiment_state
+        source = inspect.getsource(save_experiment_state)
+        assert "_experiment_state_lock" in source or "fcntl" in source or "_progress_lock" in source
+
+    def test_load_experiment_state_lock_exists(self):
+        """load_experiment_state should use a file lock."""
+        import inspect
+        from sibyl.experiment_recovery import load_experiment_state
+        source = inspect.getsource(load_experiment_state)
+        assert "_experiment_state_lock" in source or "fcntl" in source
+
+
 class TestMonitorProgressReading:
     def test_monitor_script_reads_progress(self):
         from sibyl.gpu_scheduler import experiment_monitor_script
