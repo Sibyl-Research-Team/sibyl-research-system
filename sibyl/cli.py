@@ -4,6 +4,7 @@ Provides auxiliary commands for status, evolution, and sync.
 The primary workflow runs through Claude Code's /sibyl-start skill.
 """
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
@@ -134,8 +135,16 @@ Auxiliary commands:
     requeue_exp_task_p.add_argument("task_id", help="Task id to requeue")
     requeue_exp_task_p.add_argument("--reason", default="", help="Reason for retry")
 
+    sync_exp_p = sub.add_parser("sync-experiment-completions", help="Internal daemon helper: sync completed/failed tasks to experiment_state.json")
+    sync_exp_p.add_argument("workspace", help="Workspace path")
+    sync_exp_p.add_argument("--completed-json", default="[]", help="JSON array of completed task IDs")
+    sync_exp_p.add_argument("--failed-json", default="[]", help="JSON array of failed task IDs")
+
     self_heal_p = sub.add_parser("self-heal-scan", help="Internal self-heal scan helper")
     self_heal_p.add_argument("workspace", nargs="?", default=None, help="Workspace path")
+
+    self_heal_daemon_p = sub.add_parser("self-heal-daemon-start", help="Launch self-heal background monitor daemon")
+    self_heal_daemon_p.add_argument("workspace", nargs="?", default=None, help="Workspace path")
 
     dashboard_p = sub.add_parser("dashboard", help="Web dashboard or JSON data dump")
     dashboard_p.add_argument("workspace", nargs="?", default=None,
@@ -146,6 +155,12 @@ Auxiliary commands:
     dashboard_p.add_argument("--config", help="Path to config YAML")
     dashboard_p.add_argument("--production", action="store_true",
                              help="Use gunicorn production server")
+
+    latex_p = sub.add_parser("latex-compile", help="Compile paper.md to PDF via pandoc+latexmk")
+    latex_p.add_argument("workspace", help="Workspace path")
+
+    lark_sync_p = sub.add_parser("lark-sync", help="Sync workspace artifacts to Feishu/Lark")
+    lark_sync_p.add_argument("workspace", help="Workspace path")
 
     log_agent_p = sub.add_parser("log-agent", help="Log agent invocation event")
     log_agent_p.add_argument("workspace", help="Workspace path")
@@ -236,9 +251,23 @@ Auxiliary commands:
         cli_requeue_experiment_task(args.workspace, args.task_id, reason=args.reason)
         return
 
+    if args.command == "sync-experiment-completions":
+        from sibyl.orchestrate import cli_sync_experiment_completions
+        cli_sync_experiment_completions(
+            args.workspace,
+            completed_json=args.completed_json,
+            failed_json=args.failed_json,
+        )
+        return
+
     if args.command == "self-heal-scan":
         from sibyl.orchestrate import cli_self_heal_scan
         cli_self_heal_scan(args.workspace)
+        return
+
+    if args.command == "self-heal-daemon-start":
+        from sibyl.orchestrate import cli_self_heal_daemon_start
+        cli_self_heal_daemon_start(args.workspace)
         return
 
     if args.command == "dashboard":
@@ -270,6 +299,18 @@ Auxiliary commands:
             output_summary=args.output_summary,
             prompt_summary=args.prompt_summary,
         )
+        return
+
+    if args.command == "latex-compile":
+        from sibyl.latex_pipeline import compile_full_pipeline
+        result = compile_full_pipeline(Path(args.workspace))
+        print(json.dumps(result, indent=2))
+        return
+
+    if args.command == "lark-sync":
+        from sibyl.lark_sync import run_sync
+        result = run_sync(args.workspace)
+        print(json.dumps(result, indent=2, ensure_ascii=False))
         return
 
     if args.command == "migrate":

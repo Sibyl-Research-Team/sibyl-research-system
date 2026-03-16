@@ -169,7 +169,7 @@ def test_writing_prompts_fix_paper_language_contract():
 
     assert "English academic section draft" in codex_prompt
     assert "All paper sections must remain in English" in codex_prompt
-    assert "已有英文论文草稿" in latex_prompt
+    assert "existing English paper draft" in latex_prompt
     assert "翻译成英文" not in latex_prompt
 
 
@@ -204,7 +204,7 @@ def test_background_lark_sync_docs_match_runtime_contract():
     assert "LARK-SYNC-HOOK" in debug_doc
     assert '"lark_sync": 由 sibyl-lark-sync skill 自动执行飞书同步。' not in debug_doc
 
-    assert "18-stage state machine" in architecture_doc
+    assert "19-stage state machine" in architecture_doc
     assert "pending_sync.jsonl" in architecture_doc
     assert "lark_sync → quality_gate" not in architecture_doc
     assert "inserts a `lark_sync` stage" not in architecture_doc

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/on-bash-complete.sh\""
+          }
+        ],
+        "description": "Route sibyl CLI results: lark sync trigger + experiment monitor daemon launch"
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/on-session-start.sh\""
+          }
+        ],
+        "description": "Initialize self-heal monitor and recover pending background processes"
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/on-stop.sh\""
+          }
+        ],
+        "description": "Clean up daemon PIDs for stopped/done projects"
+      }
+    ]
+  }
+}
