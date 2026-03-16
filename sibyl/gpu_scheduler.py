@@ -600,7 +600,9 @@ def get_batch_info(workspace_root: Path, gpu_ids: list[int], mode: str = "PILOT"
     if not remaining:
         if running_ids:
             return {"batch": [], "estimated_minutes": 0,
-                    "remaining_count": len(running_ids), "total_count": len(tasks)}
+                    "remaining_count": len(running_ids),
+                    "completed_count": len(completed),
+                    "total_count": len(tasks)}
         return None
 
     ready = [
@@ -611,6 +613,7 @@ def get_batch_info(workspace_root: Path, gpu_ids: list[int], mode: str = "PILOT"
     if not ready:
         return {"batch": [], "estimated_minutes": 0,
                 "remaining_count": len(remaining) + len(running_ids),
+                "completed_count": len(completed),
                 "total_count": len(tasks)}
 
     batch = assign_gpus(ready, gpu_ids, gpus_per_task)
@@ -625,7 +628,8 @@ def get_batch_info(workspace_root: Path, gpu_ids: list[int], mode: str = "PILOT"
     return {
         "batch": batch,
         "estimated_minutes": est,
-        "remaining_count": len(remaining),
+        "remaining_count": len(remaining) + len(running_ids),  # pending + running
+        "completed_count": len(completed),
         "total_count": len(tasks),
         "calibration_ratio": round(ratio, 2),
         "calibrated": calibrated,

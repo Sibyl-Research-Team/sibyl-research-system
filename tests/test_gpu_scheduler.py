@@ -1184,6 +1184,30 @@ class TestMonitorScriptDispatchNeeded:
 
 
 # ══════════════════════════════════════════════
+# remaining_count includes running tasks
+# ══════════════════════════════════════════════
+
+def test_get_batch_info_remaining_includes_running(tmp_path):
+    """remaining_count should include both pending AND running tasks."""
+    ws = tmp_path / "ws"
+    (ws / "exp").mkdir(parents=True)
+    (ws / "plan").mkdir(parents=True)
+    plan = {"tasks": [
+        {"id": "a", "gpu_count": 1, "estimated_minutes": 5, "depends_on": []},
+        {"id": "b", "gpu_count": 1, "estimated_minutes": 5, "depends_on": []},
+        {"id": "c", "gpu_count": 1, "estimated_minutes": 5, "depends_on": []},
+    ]}
+    (ws / "plan" / "task_plan.json").write_text(json.dumps(plan))
+    progress = {"completed": ["a"], "running": {"b": {"gpu_ids": [0]}}, "timings": {}}
+    (ws / "exp" / "gpu_progress.json").write_text(json.dumps(progress))
+
+    info = get_batch_info(ws, [1], "FULL")
+    # a=done, b=running, c=pending → remaining should be 2 (b+c)
+    assert info["remaining_count"] == 2
+    assert info["completed_count"] == 1
+
+
+# ══════════════════════════════════════════════
 # Smallest-first GPU assignment
 # ══════════════════════════════════════════════
 
