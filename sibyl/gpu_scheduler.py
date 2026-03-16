@@ -147,15 +147,29 @@ def _lease_entry_matches_running(gpu_id: int, entry: dict) -> bool:
     return False
 
 
+_LEASE_TTL_SEC = 3600  # 1 hour — if lease is older AND workspace can't confirm, remove
+
+
 def _clean_global_gpu_leases_unlocked(leases: dict[str, dict]) -> dict[str, dict]:
     cleaned: dict[str, dict] = {}
+    now = time.time()
     for gpu_key, entry in leases.items():
         try:
             gpu_id = int(gpu_key)
         except (TypeError, ValueError):
             continue
+        # Fast path: if lease is recent, keep it without expensive workspace check
+        claimed_at = entry.get("claimed_at", 0)
+        if now - claimed_at < 60:  # Less than 1 minute old — always keep
+            cleaned[str(gpu_id)] = entry
+            continue
+        # Check if workspace still confirms this lease
         if _lease_entry_matches_running(gpu_id, entry):
             cleaned[str(gpu_id)] = entry
+        elif now - claimed_at < _LEASE_TTL_SEC:
+            # Workspace doesn't confirm but lease is recent — keep (may be in transition)
+            cleaned[str(gpu_id)] = entry
+        # else: workspace doesn't confirm AND lease is old → drop
     return cleaned
 
 

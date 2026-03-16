@@ -1184,6 +1184,67 @@ class TestMonitorScriptDispatchNeeded:
 
 
 # ══════════════════════════════════════════════
+# TTL-based stale lease cleanup
+# ══════════════════════════════════════════════
+
+def test_stale_leases_cleaned_by_ttl(tmp_path, monkeypatch):
+    """Leases older than TTL should be cleaned even if workspace is gone."""
+    import time as time_mod
+    from sibyl import gpu_scheduler
+
+    monkeypatch.setattr(gpu_scheduler, "_global_gpu_leases_path",
+                        lambda: tmp_path / "gpu_leases.json")
+
+    old_lease = {
+        "0": {
+            "workspace_root": "/nonexistent/path",
+            "task_ids": ["old_task"],
+            "claimed_at": time_mod.time() - 7200,  # 2 hours ago
+        }
+    }
+    cleaned = gpu_scheduler._clean_global_gpu_leases_unlocked(old_lease)
+    assert "0" not in cleaned  # Should be removed — workspace gone + old
+
+
+def test_recent_leases_kept_without_workspace_check(tmp_path, monkeypatch):
+    """Leases less than 60s old should always be kept."""
+    import time as time_mod
+    from sibyl import gpu_scheduler
+
+    monkeypatch.setattr(gpu_scheduler, "_global_gpu_leases_path",
+                        lambda: tmp_path / "gpu_leases.json")
+
+    recent_lease = {
+        "0": {
+            "workspace_root": "/nonexistent/path",
+            "task_ids": ["new_task"],
+            "claimed_at": time_mod.time() - 10,  # 10 seconds ago
+        }
+    }
+    cleaned = gpu_scheduler._clean_global_gpu_leases_unlocked(recent_lease)
+    assert "0" in cleaned  # Should be kept — very recent
+
+
+def test_mid_age_lease_kept_when_workspace_gone(tmp_path, monkeypatch):
+    """Leases newer than TTL but older than 60s, with gone workspace, are kept."""
+    import time as time_mod
+    from sibyl import gpu_scheduler
+
+    monkeypatch.setattr(gpu_scheduler, "_global_gpu_leases_path",
+                        lambda: tmp_path / "gpu_leases.json")
+
+    mid_lease = {
+        "0": {
+            "workspace_root": "/nonexistent/path",
+            "task_ids": ["mid_task"],
+            "claimed_at": time_mod.time() - 600,  # 10 minutes ago (< 1hr TTL)
+        }
+    }
+    cleaned = gpu_scheduler._clean_global_gpu_leases_unlocked(mid_lease)
+    assert "0" in cleaned  # Should be kept — within TTL even though workspace is gone
+
+
+# ══════════════════════════════════════════════
 # Failed tasks don't block pipeline
 # ══════════════════════════════════════════════
 
