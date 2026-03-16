@@ -6,6 +6,82 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
+## Recent Updates
+
+### 2026-03-17
+
+- **refactor**: Optimize pipeline — merge `writing_critique` into `writing_integrate`, speculative parallel `experiment_decision` + `writing_outline`, Lark sync whitelist for writing stages ([`3c73b52`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/3c73b52))
+- **refactor**: Optimize GPU scheduler — critical path priority in task assignment, batched SSH stuck detection, auto-retry for recoverable failures (OOM/SSH/timeout), prefer `experiment_state.json` as authoritative source ([`5624332`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/5624332))
+- **refactor**: Optimize reflection + evolution — async `_post_reflection_hook`, effectiveness tracking for evolution lessons, synonym normalization for cross-language issue deduplication, merge `IterationLogger` into `reflection_postprocess` ([`ba1f398`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/ba1f398))
+- **refactor**: Optimize writing pipeline — shared notation, cross-section critique, role separation ([`4f988dc`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/4f988dc))
+- **docs**: Update documentation for compute backend, supervisor, and new modules ([`25f7669`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/25f7669))
+- **feat**: CLI subcommands, plugin hooks, novelty-checker skill ([`809476f`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/809476f))
+- **feat**: Add `auto_fix`, `experiment_digest`, `lark_sync`, `latex_pipeline` modules ([`a64d321`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/a64d321))
+- **feat**: Orchestration enhancements — writing quality gates, deterministic LaTeX, self-heal daemon ([`7638a40`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/7638a40))
+- **refactor**: Enhance agent prompts with writing quality rules and experiment protocol ([`d186e69`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/d186e69))
+- **feat**: Codex-guided idea refinement loop with `research_focus` tuning ([`08bbf62`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/08bbf62))
+- **feat**: Pluggable compute backend abstraction (local + SSH) ([`4a32775`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/4a32775))
+- **fix**: Add explicit dispatch condition to `experiment_wait` script ([`ba25925`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/ba25925))
+- **fix**: Detect stuck tasks when PID file is missing in local backend ([`fc0b9d6`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/fc0b9d6))
+- **fix**: Warn on missing task dependencies in topo sort ([`be67959`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/be67959))
+- **perf**: Add TTL-based stale lease cleanup, reduce workspace lookups ([`cce8e3a`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/cce8e3a))
+- **fix**: Exclude failed tasks from pending, unblock downstream dependencies ([`86f62d3`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/86f62d3))
+- **fix**: `remaining_count` includes running tasks, add `completed_count` ([`0c4692f`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/0c4692f))
+- **perf**: Sort tasks by `gpu_count` for better GPU slot utilization ([`befe35a`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/befe35a))
+- **refactor**: Remove redundant `experiment_state` and `gpu_progress` loads ([`b95fe35`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/b95fe35))
+- **fix**: Auto-sync `experiment_state` from `gpu_progress` on load ([`e082d42`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/e082d42))
+- **fix**: Add timeout to GPU lease and progress file locks ([`51d0a68`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/51d0a68))
+- **fix**: Add file locking to `experiment_state.json` operations ([`b4333e4`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/b4333e4))
+- **fix**: Move `sync_workspace_gpu_leases` inside progress lock to prevent race ([`7152866`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/7152866))
+- **feat**: `_load_progress` returns failed set, support Task 8 exclusion ([`eff0da2`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/eff0da2))
+
+### 2026-03-13
+
+- **chore**: Add macOS-specific entries to `.gitignore` ([`c2ccaa5`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/c2ccaa5))
+- **docs**: Add `/sibyl-research:init` step to quick start guides ([`83ba348`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/83ba348))
+
+### 2026-03-12
+
+- **feat**: Default workspaces to iteration directories ([`5ce9df4`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/5ce9df4))
+- **feat**: Add experiment supervisor recovery workflow ([`8642cda`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/8642cda))
+- **feat**: Prioritize orchestra skills for experiment agents ([`e960540`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/e960540))
+
+### 2026-03-11
+
+- **feat**: Add experiment supervisor state tracking to runtime CLI ([`6428ad8`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/6428ad8))
+- **test**: Update tests for refactored orchestration architecture ([`03e36e5`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/03e36e5))
+- **docs**: Update documentation for orchestration refactor and parallel projects ([`7f61436`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/7f61436))
+- **feat**: Evolution locking, global GPU leases, and runtime improvements ([`fb491b4`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/fb491b4))
+- **feat**: Workspace session isolation and sentinel improvements ([`5733615`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/5733615))
+- **refactor**: Skills use `render_skill_prompt` and add Skill tool access ([`8e23f32`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/8e23f32))
+- **feat**: Add orchestra external skills integration and config enhancements ([`f800e93`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/f800e93))
+- **refactor**: Extract `orchestrate.py` into `sibyl/orchestration/` package ([`1fcd1ef`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/1fcd1ef))
+
+### 2026-03-10
+
+- **release**: Bump version to 0.6.1 ([`546cf07`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/546cf07))
+
+### 2026-03-08
+
+- **feat**: Expand `result_debate` from 3 to 6 agents with synthesis step ([`a3be563`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/a3be563))
+- **feat**: Expand `idea_debate` from 3 to 6 agents with diverse perspectives ([`d89dd7d`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/d89dd7d))
+- **feat**: Overhaul evolution engine with 7 issue categories, time decay, and agent-routed overlays ([`572f085`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/572f085))
+- **feat**: Per-task GPU count and estimated runtime for experiment scheduling ([`04f6c25`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/04f6c25))
+- **feat**: Merge critic + supervisor into parallel review stage; add GPU-aware experiment scheduling ([`1187d2c`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/1187d2c))
+- **feat**: Structured agent team actions + iteration artifact preservation ([`5686a83`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/5686a83))
+- **feat**: Integrate Claude Code Task UI for pipeline progress tracking ([`fc305c7`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/fc305c7))
+- **test**: Add 134 pytest tests covering orchestrator, workspace, and support modules ([`7a52b85`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/7a52b85))
+- **docs**: Add comprehensive Chinese README ([`4bc20b3`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/4bc20b3))
+- **fix**: 12 bug fixes across orchestrator, workspace, and plugin commands ([`a82d18c`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/a82d18c), [`5e3c5af`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/5e3c5af), [`2e8b3a3`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/2e8b3a3), [`b29bb23`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/b29bb23), [`ffdf1fd`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/ffdf1fd), [`314972e`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/314972e), [`b0f0199`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/b0f0199), [`6a4d438`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/6a4d438), [`142642b`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/142642b), [`21bbfa6`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/21bbfa6))
+
+### 2026-03-07
+
+- **refactor**: Rename FARS to Sibyl System (西比拉系统) ([`51c18d8`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/51c18d8))
+- **feat**: Add LaTeX pipeline, Chinese docs, Feishu upload, server migration ([`537d26c`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/537d26c))
+- **feat**: Rewrite FARS to Claude Code native architecture (v0.5.0) ([`918ae17`](https://github.com/Sibyl-Research-Team/sibyl-research-system/commit/918ae17))
+
+---
+
 > Inspired by the pioneering work of [The AI Scientist](https://github.com/SakanaAI/AI-Scientist), [FARS](https://analemma.ai/blog/introducing-fars/), and [AutoResearch](https://github.com/karpathy/autoresearch), Sibyl takes the vision further by building natively on [Claude Code](https://docs.anthropic.com/en/docs/claude-code) to fully leverage its agent ecosystem — skills, plugins, MCP servers, and multi-agent teams.
 
 [中文文档](README_CN.md)
