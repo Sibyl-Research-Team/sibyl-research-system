@@ -1,16 +1,25 @@
 <p align="center">
-  <img src="image/icon.jpg" width="200" alt="Sibyl Research System">
+  <img src="image/icon.jpg" width="200" alt="Sibyl Research System — Autonomous AI Scientist">
   <h1 align="center">Sibyl Research System</h1>
-  <p align="center"><b>Fully Autonomous AI Research System with Self-Evolution</b></p>
+  <p align="center"><b>Fully Autonomous AI Scientist · From Idea to Paper, Zero Human Intervention</b></p>
+  <p align="center"><i>Multi-Agent Scientific Discovery · GPU Experiment Execution · Self-Evolving Research Pipeline</i></p>
 </p>
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License: MIT"></a>
+  <img src="https://img.shields.io/badge/Agents-20+-blue" alt="20+ AI Agents">
+  <img src="https://img.shields.io/badge/Pipeline-19_Stages-green" alt="19-Stage Pipeline">
+  <img src="https://img.shields.io/badge/Python-3.12+-3776ab" alt="Python 3.12+">
+  <img src="https://img.shields.io/badge/Claude_Code-Native-blueviolet" alt="Claude Code Native">
+</p>
 
 > Inspired by the pioneering work of [The AI Scientist](https://github.com/SakanaAI/AI-Scientist), [FARS](https://analemma.ai/blog/introducing-fars/), and [AutoResearch](https://github.com/karpathy/autoresearch), Sibyl takes the vision further by building natively on [Claude Code](https://docs.anthropic.com/en/docs/claude-code) to fully leverage its agent ecosystem — skills, plugins, MCP servers, and multi-agent teams.
 
 [中文文档](README_CN.md)
 
-Sibyl is a **fully automated scientific discovery system** that autonomously drives ML research from literature survey to paper submission. It operates as an **autonomous research organization**: 20+ specialized AI agents debate ideas, design and run GPU experiments, write papers, and critically review their own work — all without human intervention.
+Sibyl is a **fully autonomous AI scientist** that drives end-to-end ML research — from literature survey and hypothesis generation to GPU experiment execution and conference-ready paper writing. It operates as an **autonomous research organization**: 20+ specialized AI agents debate ideas, design and run GPU experiments, write papers, and critically review their own work — all without human intervention.
+
+**Key capabilities**: automated literature review, multi-agent idea debate, experiment planning & GPU-parallel execution, multi-agent paper writing & peer review, autonomous iteration with quality gates, and cross-project self-evolution. Supports NeurIPS/ICML/ICLR-level output with LaTeX compilation.
 
 What truly sets Sibyl apart is its **dual-loop architecture**:
 
@@ -22,6 +31,12 @@ What truly sets Sibyl apart is its **dual-loop architecture**:
 - **Autonomous Multi-Dimensional Iteration** — Not just "run experiments and write a paper." Every aspect of the research improves automatically across iterations: ideas sharpen through multi-agent debate, experiments expand with better baselines and ablations, writing tightens under 6-agent cross-review, and resource utilization optimizes through GPU scheduling feedback. The quality gate decides when to stop or pivot — no human in the loop.
 - **Self-Evolving System** — Most AI research tools are static — they run the same way every time. Sibyl evolves. It extracts lessons from every research iteration (issues, success patterns, efficiency metrics), keeps them time-weighted and context-filtered, and injects the relevant ones back into agent prompts. Across projects, the system accumulates institutional knowledge — each project makes every future project better.
 - **Claude Code Native** — Not a wrapper around API calls. Built directly on Claude Code's architecture (fork skills, agent teams, MCP tools), inheriting its full ecosystem: SSH remote execution, multi-model collaboration (Claude + GPT-5.4 cross-review), Feishu/Lark cloud sync, and more.
+
+### Use Cases
+
+- **Automated ML Research** — Give Sibyl a research topic or spec, and it autonomously explores ideas, runs experiments on your GPU cluster, and produces a conference-quality paper
+- **Research Augmentation** — Use individual pipeline stages (literature search, idea debate, experiment planning) as standalone research tools
+- **Vibe Research** — Describe what you want to explore in natural language; Sibyl handles the rest ([what is vibe research?](https://github.com/karpathy/autoresearch))
 
 ---
 
@@ -552,18 +567,33 @@ When experiment results are unsatisfactory, the supervisor decision agent can tr
 
 ## Comparison
 
-| Feature | Sibyl Research System | [AI Scientist](https://github.com/SakanaAI/AI-Scientist) | [AutoResearch](https://github.com/karpathy/autoresearch) |
-|---------|-------------|-------------|--------------|
-| Architecture | Claude Code native (skills, teams, MCP) | API wrapper | Single-file script |
-| Agent count | 20+ specialized agents | Single LLM | Single agent |
-| Idea generation | 6-agent multi-perspective debate | LLM brainstorming | N/A |
-| Experiment execution | GPU-parallel with topo-sort scheduling | Template-based | Single-GPU loop |
-| Paper writing | Multi-agent write + review + revise | LLM generation | N/A |
-| Self-evolution | Cross-project lesson learning | None | None |
-| Self-healing | Auto-detect & fix runtime errors | None | None |
-| Quality control | Multi-round review + quality gate | Automated review | Metric-based |
-| Human intervention | Fully autonomous | Minimal | Minimal |
+| Feature | Sibyl Research System | [AI Scientist](https://github.com/SakanaAI/AI-Scientist) | [AutoResearch](https://github.com/karpathy/autoresearch) | [AgentLaboratory](https://github.com/SamuelSchmidgall/AgentLaboratory) |
+|---------|-------------|-------------|--------------|--------------|
+| Architecture | Claude Code native (skills, teams, MCP) | API wrapper | Single-file script | API wrapper |
+| Agent count | 20+ specialized agents | Single LLM | Single agent | 3 agents |
+| Idea generation | 6-agent multi-perspective debate | LLM brainstorming | N/A | LLM brainstorming |
+| Experiment execution | GPU-parallel with topo-sort scheduling | Template-based | Single-GPU loop | Sandbox execution |
+| Paper writing | Multi-agent write + review + revise | LLM generation | N/A | LLM generation |
+| Self-evolution | Cross-project lesson learning | None | None | None |
+| Self-healing | Auto-detect & fix runtime errors | None | None | None |
+| Quality control | Multi-round review + quality gate | Automated review | Metric-based | Human-in-the-loop |
+| Human intervention | Fully autonomous | Minimal | Minimal | Optional |
+
+## Related Projects
+
+- [The AI Scientist](https://github.com/SakanaAI/AI-Scientist) — Pioneering automated scientific discovery by SakanaAI
+- [AutoResearch](https://github.com/karpathy/autoresearch) — Karpathy's elegant single-GPU autoresearch loop
+- [AgentLaboratory](https://github.com/SamuelSchmidgall/AgentLaboratory) — End-to-end autonomous research workflow
+- [GPT-Researcher](https://github.com/assafelovic/gpt-researcher) — Autonomous deep web research agent
+- [OpenScholar](https://github.com/AkariAsai/OpenScholar) — Scientific literature synthesis with retrieval-augmented LMs
+- [EvoScientist](https://github.com/EvoScientist/EvoScientist) — Self-evolving AI scientists
 
 ## License
 
 MIT License
+
+---
+
+<p align="center"><sub>
+<b>Keywords</b>: AI scientist, autonomous research, automated scientific discovery, research automation, multi-agent system, LLM agents, paper generation, experiment execution, GPU scheduling, self-evolving AI, self-healing, deep research, AI for science, Claude Code, MCP, autoresearch, vibe research, agentic workflow, literature review automation, hypothesis generation, automated peer review, conference paper writing
+</sub></p>
