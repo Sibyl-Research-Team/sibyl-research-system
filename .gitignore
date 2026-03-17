@@ -37,6 +37,7 @@ user_token_cache.json
 
 # Playwright MCP logs
 .playwright-mcp/
+.playwright-cli/
 
 # Misc temp files
 .history/
