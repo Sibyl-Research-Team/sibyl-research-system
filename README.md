@@ -178,6 +178,40 @@ claude --plugin-dir "$SIBYL_ROOT/plugin" --dangerously-skip-permissions
 
 ---
 
+## WebUI
+
+Sibyl now includes a browser-based WebUI for live project operations:
+
+- Chat with the active session
+- Monitor project state, agents, GPUs, and token cost
+- Browse workspace files with a tree view
+- Preview text files and embedded PDFs directly in the browser
+- Edit project config and open the live terminal
+- Switch UI language between `EN / 中文`
+
+### Quick Start
+
+From the repo root:
+
+```bash
+./scripts/dev-webui.sh
+```
+
+Default local addresses:
+
+- Backend API: `http://127.0.0.1:7654`
+- Frontend UI: `http://127.0.0.1:3000`
+
+For auth-enabled local testing:
+
+```bash
+./scripts/dev-webui.sh --with-auth
+```
+
+Detailed WebUI usage, manual startup, and troubleshooting are documented in [webui/README.md](webui/README.md).
+
+---
+
 ## Recent Updates
 
 ### 2026-03-17
