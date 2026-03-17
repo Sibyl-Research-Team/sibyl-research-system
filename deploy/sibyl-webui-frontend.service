@@ -1,0 +1,14 @@
+[Unit]
+Description=Sibyl WebUI frontend server
+After=network.target
+
+[Service]
+Type=simple
+User=cwan0785
+WorkingDirectory=/Users/cwan0785/sibyl-system/webui
+ExecStart=/usr/bin/env npm run start -- --hostname 127.0.0.1 --port 3000
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,15 @@
+[Unit]
+Description=Sibyl WebUI API server
+After=network.target
+
+[Service]
+Type=simple
+User=cwan0785
+WorkingDirectory=/Users/cwan0785/sibyl-system
+Environment=SIBYL_TTYD_STATE_DIR=/tmp
+ExecStart=/Users/cwan0785/sibyl-system/.venv/bin/python3 -m sibyl.cli webui --host 127.0.0.1 --port 7654
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

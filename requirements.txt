@@ -1,2 +1,6 @@
 PyYAML>=6.0
 rich>=13.0
+flask>=3.0
+gunicorn>=22.0
+flask-sock>=0.7
+watchfiles>=0.21

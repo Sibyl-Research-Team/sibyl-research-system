@@ -156,6 +156,11 @@ Auxiliary commands:
     dashboard_p.add_argument("--production", action="store_true",
                              help="Use gunicorn production server")
 
+    webui_p = sub.add_parser("webui", help="Web UI API + WebSocket server")
+    webui_p.add_argument("--port", type=int, default=7654, help="Server port")
+    webui_p.add_argument("--host", default="127.0.0.1", help="Server host")
+    webui_p.add_argument("--config", help="Path to config YAML")
+
     latex_p = sub.add_parser("latex-compile", help="Compile paper.md to PDF via pandoc+latexmk")
     latex_p.add_argument("workspace", help="Workspace path")
 
@@ -283,6 +288,19 @@ Auxiliary commands:
             cfg = load_effective_config(config_path=getattr(args, "config", None))
             run(port=args.port, host=args.host, config=cfg,
                 production=getattr(args, "production", False))
+        return
+
+    if args.command == "webui":
+        from sibyl.orchestration.config_helpers import load_effective_config
+        from sibyl.webui.app import create_webui_app
+
+        cfg = load_effective_config(config_path=getattr(args, "config", None))
+        app = create_webui_app(cfg)
+        ws_dir = cfg.workspaces_dir.resolve()
+        print(f"\n  Sibyl WebUI API running at http://{args.host}:{args.port}")
+        print(f"  Serving workspaces from: {ws_dir}")
+        print("  Press Ctrl+C to stop.\n")
+        app.run(host=args.host, port=args.port, debug=False)
         return
 
     if args.command == "log-agent":
