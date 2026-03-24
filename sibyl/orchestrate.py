@@ -532,6 +532,18 @@ cli_migrate_server = _migration_cli.cli_migrate_server
 
 
 # ══════════════════════════════════════════════
+# Rebuttal Subsystem CLI
+# ══════════════════════════════════════════════
+
+from sibyl.rebuttal import (
+    cli_rebuttal_init,
+    cli_rebuttal_next,
+    cli_rebuttal_record,
+    cli_rebuttal_status,
+)
+
+
+# ══════════════════════════════════════════════
 # Self-Healing CLI
 # ══════════════════════════════════════════════
 
