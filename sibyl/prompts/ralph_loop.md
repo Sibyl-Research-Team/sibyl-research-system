@@ -6,13 +6,13 @@
 恢复上下文:
 1. 读取 {workspace_path}/breadcrumb.json 了解当前 stage 和循环状态
 2. 获取编排循环定义:
-   .venv/bin/python3 -c "from sibyl.orchestrate import render_control_plane_prompt; print(render_control_plane_prompt('loop', workspace_path='{workspace_path}'))"
+   cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import render_control_plane_prompt; print(render_control_plane_prompt('loop', workspace_path='{workspace_path}'))"
 3. 读取 {workspace_path}/logs/research_diary.md 了解历史
 
 执行循环:
-1. 获取下一步: .venv/bin/python3 -c "from sibyl.orchestrate import cli_next; cli_next('{workspace_path}')"
+1. 获取下一步: cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_next; cli_next('{workspace_path}')"
 2. 根据 action_type 执行操作（见编排循环定义）
-3. 记录结果: .venv/bin/python3 -c "from sibyl.orchestrate import cli_record; cli_record('{workspace_path}', 'STAGE')"
+3. 记录结果: cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_record; cli_record('{workspace_path}', 'STAGE')"
 4. 重复。遇到 done 后检查质量，如需改进则继续迭代。
 5. 遇到任何错误：自行诊断修复，sleep 后重试，绝不暂停。
 

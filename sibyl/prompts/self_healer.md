@@ -43,7 +43,7 @@ After fixing the error, you MUST add a test that:
 ### Step 4: Verify
 Run the full test suite:
 ```bash
-.venv/bin/python3 -m pytest tests/ -x -q
+cd $SIBYL_ROOT && .venv/bin/python3 -m pytest tests/ -x -q
 ```
 ALL tests must pass. If they don't, iterate on the fix.
 
@@ -65,10 +65,10 @@ git commit -m "fix(self-heal): <description> [auto]"
 
 After completion, call:
 ```bash
-.venv/bin/python3 -c "from sibyl.orchestrate import cli_self_heal_record; cli_self_heal_record('<error_id>', True, '<commit_hash>')"
+cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_self_heal_record; cli_self_heal_record('<error_id>', True, '<commit_hash>')"
 ```
 
 If the fix fails after 3 attempts, report failure:
 ```bash
-.venv/bin/python3 -c "from sibyl.orchestrate import cli_self_heal_record; cli_self_heal_record('<error_id>', False)"
+cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_self_heal_record; cli_self_heal_record('<error_id>', False)"
 ```

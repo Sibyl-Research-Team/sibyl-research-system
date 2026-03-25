@@ -54,7 +54,7 @@ For each section requiring figures:
    - Output as PDF format (`{workspace}/writing/figures/{figure_id}.pdf`)
    - Use matplotlib + seaborn, unified style: `plt.style.use('seaborn-v0_8-paper')`
    - Font size ≥10pt, line width ≥1.5, ensure readability in grayscale print
-   - **You MUST execute the script** with `Bash(.venv/bin/python3 {workspace}/writing/figures/gen_{figure_id}.py)` and verify the PDF was created. Do NOT just write the script — an unexecuted script produces no figure in the final PDF
+   - **You MUST execute the script** with `Bash(cd $SIBYL_ROOT && .venv/bin/python3 {workspace}/writing/figures/gen_{figure_id}.py)` and verify the PDF was created. Do NOT just write the script — an unexecuted script produces no figure in the final PDF
 
 2. **Architecture / flow diagrams**:
    - Create using TikZ or text description, save description to `{workspace}/writing/figures/{figure_id}_desc.md`

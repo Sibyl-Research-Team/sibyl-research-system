@@ -30,7 +30,7 @@ Read the following files:
 1. **Read figure manifest**: Parse `paper.md`'s `## Figures and Tables` section and `{workspace}/writing/visual_audit.md`
 2. **Collect figure files**: Scan `{workspace}/writing/figures/` for all `.pdf` / `.png` files
 3. **Architecture diagrams to TikZ**: Read `*_desc.md` files and convert architecture/flow diagram descriptions to TikZ code
-4. **Run generation scripts**: If any `gen_*.py` scripts exist without corresponding output PDFs, execute them with `.venv/bin/python3`
+4. **Run generation scripts**: If any `gen_*.py` scripts exist without corresponding output PDFs, execute them with `cd $SIBYL_ROOT && .venv/bin/python3`
 5. **Copy to latex/**: Copy all figure PDF/PNG files to `{workspace}/writing/latex/figures/`
 6. **Insert references**: Use `\includegraphics` and `\begin{figure}` environments in LaTeX
 

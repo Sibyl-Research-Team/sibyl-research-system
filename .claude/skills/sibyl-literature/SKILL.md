@@ -7,7 +7,7 @@ user-invocable: false
 allowed-tools: Read, Write, Glob, Grep, Bash, WebSearch, WebFetch, mcp__arxiv-mcp-server__search_papers, mcp__arxiv-mcp-server__download_paper, mcp__arxiv-mcp-server__read_paper, mcp__arxiv-mcp-server__list_papers, mcp__google-scholar__search_google_scholar_key_words, mcp__google-scholar__search_google_scholar_advanced, mcp__google-scholar__get_author_info, mcp__claude_ai_bioRxiv__search_preprints, mcp__claude_ai_bioRxiv__get_preprint, Skill
 ---
 
-!`SIBYL_WORKSPACE="$ARGUMENTS[0]" .venv/bin/python3 -c "from sibyl.orchestrate import render_skill_prompt; import os; ws = os.environ.get('SIBYL_WORKSPACE', ''); print(render_skill_prompt('literature_researcher', workspace_path=ws))"`
+!`cd "$SIBYL_ROOT" && SIBYL_WORKSPACE="$ARGUMENTS[0]" .venv/bin/python3 -c "from sibyl.orchestrate import render_skill_prompt; import os; ws = os.environ.get('SIBYL_WORKSPACE', ''); print(render_skill_prompt('literature_researcher', workspace_path=ws))"`
 
 AGENT_NAME: sibyl-literature
 AGENT_TIER: sibyl-standard

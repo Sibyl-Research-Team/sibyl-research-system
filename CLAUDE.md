@@ -42,14 +42,16 @@ Sibyl 是一个全自动学术研究系统。它的唯一使命是**探索有价
 原因：系统 `python3` 指向 homebrew Python 3.14，缺少 `pyyaml`、`rich` 等依赖，会导致 `import yaml` 等失败。
 
 ```bash
-# 正确
-.venv/bin/python3 -c "from sibyl.orchestrate import cli_next; cli_next('...')"
+# 正确（推荐：先 cd 到项目根目录）
+cd $SIBYL_ROOT && .venv/bin/python3 -c "from sibyl.orchestrate import cli_next; cli_next('...')"
 .venv/bin/pip install <package>
 
 # 错误
 python3 -c "from sibyl.orchestrate import ..."
 pip install <package>
 ```
+
+**`SIBYL_ROOT` 环境变量**：所有 skill 和 prompt 通过 `$SIBYL_ROOT` 定位项目根目录。该变量由 `setup.sh` 自动配置到 `.claude/settings.local.json`（Claude Code session 级别）和 shell rc（终端级别）。如果项目迁移路径，重新运行 `bash setup.sh`。
 
 依赖由 `pyproject.toml` / `pip install -e .` 管理。`requirements.txt` 仅保留最小兼容依赖清单。如需重建环境：
 ```bash
@@ -58,7 +60,7 @@ python3.12 -m venv .venv && .venv/bin/pip install -e .
 
 ## 工作目录
 
-所有 Sibyl CLI 命令（`cli_next`, `cli_record` 等）必须在项目根目录下执行，因为 `from sibyl.xxx` 依赖包路径。
+所有 Sibyl CLI 命令（`cli_next`, `cli_record` 等）必须在项目根目录下执行（`cd $SIBYL_ROOT`），因为 `from sibyl.xxx` 依赖包路径。
 
 ## Agent 架构（context: fork Skills）
 

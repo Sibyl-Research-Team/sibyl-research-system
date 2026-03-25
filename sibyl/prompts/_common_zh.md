@@ -122,7 +122,7 @@
 当系统自进化修改 Sibyl 系统文件（`sibyl/` 下的代码、`sibyl/prompts/` 下的 prompt、配置文件、plugin 命令、`.claude/` 文件）时，以下规则**必须遵守**：
 
 1. **编写测试**: 每次修改系统代码必须在 `tests/` 中编写对应的测试用例，覆盖新行为和向后兼容性。
-2. **通过所有测试**: 运行 `.venv/bin/python3 -m pytest tests/ -v`，确保所有测试通过。如果测试失败，修复问题 — 不得跳过或删除测试。
+2. **通过所有测试**: 运行 `cd $SIBYL_ROOT && .venv/bin/python3 -m pytest tests/ -v`，确保所有测试通过。如果测试失败，修复问题 — 不得跳过或删除测试。
 3. **Git 提交**: 测试通过后，通过 `git add <具体文件> && git commit` 提交变更，附描述性提交信息。禁止使用 `git add -A` 以避免提交敏感文件。
 4. **Git 推送**: 提交后立即推送到 GitHub 确保可追溯: `git push`。
 5. **禁止破坏性修改**: 不得在未通过测试验证安全性的情况下删除或覆盖现有 prompt/config 文件。使用 git 管理所有系统进化历史。

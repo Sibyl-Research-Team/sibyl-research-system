@@ -275,9 +275,54 @@ CFGEOF
     fi
 fi
 
+# ---------- Claude Code project settings ----------
+echo ""
+echo "Configuring Claude Code project settings..."
+SETTINGS_FILE=".claude/settings.local.json"
+if [ -f "$SETTINGS_FILE" ]; then
+    # Update SIBYL_ROOT in existing settings.local.json
+    "$VENV_PY" - "$SETTINGS_FILE" "$REPO_ROOT" <<'PY'
+import json, sys
+path, root = sys.argv[1], sys.argv[2]
+with open(path, "r", encoding="utf-8") as f:
+    data = json.load(f)
+env = data.setdefault("env", {})
+if env.get("SIBYL_ROOT") == root:
+    print("already_set")
+else:
+    env["SIBYL_ROOT"] = root
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+        f.write("\n")
+    print("updated")
+PY
+    echo "  ✓ SIBYL_ROOT configured in $SETTINGS_FILE"
+else
+    mkdir -p .claude
+    cat > "$SETTINGS_FILE" << SETTEOF
+{
+  "env": {
+    "SIBYL_ROOT": "$REPO_ROOT"
+  },
+  "permissions": {
+    "allow": []
+  },
+  "sandbox": {
+    "enabled": false,
+    "autoAllowBashIfSandboxed": false
+  }
+}
+SETTEOF
+    echo "  ✓ Created $SETTINGS_FILE with SIBYL_ROOT"
+fi
+echo "    SIBYL_ROOT -> $REPO_ROOT"
+echo ""
+echo "  ⚠ IMPORTANT: All skill commands depend on SIBYL_ROOT to locate the Python venv."
+echo "    If you move the project, re-run: bash setup.sh"
+
 # ---------- Environment variables ----------
 echo ""
-echo "Checking environment variables..."
+echo "Checking shell environment variables..."
 SHELL_RC="$(detect_shell_rc)"
 echo "  Shell rc target: $SHELL_RC"
 configure_sibyl_root "$SHELL_RC"

@@ -7,7 +7,7 @@ user-invocable: false
 allowed-tools: Read, Write, Glob, Grep, WebSearch, WebFetch, mcp__arxiv-mcp-server__search_papers, mcp__google-scholar__search_google_scholar_key_words, Skill
 ---
 
-!`SIBYL_WORKSPACE="$ARGUMENTS[0]" .venv/bin/python3 -c "from sibyl.orchestrate import render_skill_prompt; import os; ws = os.environ.get('SIBYL_WORKSPACE', ''); print(render_skill_prompt('comparativist', workspace_path=ws))"`
+!`cd "$SIBYL_ROOT" && SIBYL_WORKSPACE="$ARGUMENTS[0]" .venv/bin/python3 -c "from sibyl.orchestrate import render_skill_prompt; import os; ws = os.environ.get('SIBYL_WORKSPACE', ''); print(render_skill_prompt('comparativist', workspace_path=ws))"`
 
 AGENT_NAME: sibyl-comparativist
 AGENT_TIER: sibyl-light

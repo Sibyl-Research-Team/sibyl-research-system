@@ -175,7 +175,7 @@ When improvement recommendations involve modifying Sibyl system files (code unde
 
 System file modifications must follow this workflow:
 1. **Write tests**: Add corresponding test cases in `tests/` for each modification
-2. **Pass all tests**: Run `.venv/bin/python3 -m pytest tests/ -v` and ensure ALL pass
+2. **Pass all tests**: Run `cd $SIBYL_ROOT && .venv/bin/python3 -m pytest tests/ -v` and ensure ALL pass
 3. **Git commit**: After tests pass, commit changes via `git add <specific files> && git commit` with a descriptive message
 4. **Git push**: Push to the remote repository immediately after commit
 
